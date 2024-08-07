@@ -6,25 +6,25 @@
 #include "sys_serial_utils.h"
 
 // to help with debugging, if you want to disable the interactive Serial config options
-// set this to true and it will not push interactive
+// set this to true and it will not force interactive
 #define NO_RECONFIGURE false
 
 Preferences preferences;
 
 struct ConfigurationStructType {
-  // general configuration items, defaults can be specified here, leave blank if you want to force setup
-  String deviceID               = "cbiot_EastronPowerMeters";
-  String deviceSoftwareVersion  = "1.0.1";
-  String deviceManufacturer     = "Arduino";
-  String deviceModel            = "Nano 33 IoT"; 
-  String timeZone               = "Europe/London";
-  IPAddress mqttBrokerAddress   = IPAddress(0,0,0,0);   
+  // general configuration items, defaults can be specified here, leave blank if you want to use interactive setup
+  String deviceID               = "cbiot_EastronPowerMeters";       // used for WiFi and Home Assistant device IDs
+  String deviceSoftwareVersion  = "1.0.1";                          // used by Home Assistant
+  String deviceManufacturer     = "Arduino";                        // used by Home Assistant
+  String deviceModel            = "Nano 33 IoT";                    // used by Home Assistant
+  String timeZone               = "Europe/London";                  // used by NTP Time Libraries
+  IPAddress mqttBrokerAddress   = IPAddress(0,0,0,0);               // used by Home Assistant for MQTT broker
 
   // Secret Items (really should NOT have defaults specificed here in the source code)
-  String secretWiFiSSID         = ""; 
-  String secretWiFiPassword     = ""; 
-  String secretMqttUser         = "";
-  String secretMqttPassword     = "";    
+  String secretWiFiSSID         = "";                               // used by WiFi
+  String secretWiFiPassword     = "";                               // used by WiFi
+  String secretMqttUser         = "";                               // used by Home Assistant for MQTT broker
+  String secretMqttPassword     = "";                               // used by Home Assistant for MQTT broker
 } config;
 
 
@@ -66,10 +66,9 @@ void setupConfig() {
   bool doReconfigure;
 
   if (Serial && !NO_RECONFIGURE) {
-    // if we have a serial port connection to the IDE terminal
-    String yesno = promptAndReadLine("Do you want to configure the device? (y/N)", "N");
-    yesno.toLowerCase();
-    doReconfigure = (yesno.startsWith("y"));
+    // if we have a serial port connection to the IDE terminal ask for forced reconfiguration
+    // note: interactive reconfiguration will always occur if mandatory items are not set and there are no defaults
+    doReconfigure = promptAndReadYesNo("Do you want to configure the device?", false);
   } else {
     doReconfigure = false;
   }
