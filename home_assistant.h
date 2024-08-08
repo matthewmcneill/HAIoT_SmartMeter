@@ -47,7 +47,7 @@ public:
     // Nested class for defining the Entities on the device
     class HAEntitiesType {
     public:            
-        int modbusID;     // store this, it will link to the modbut item ID when we use it in the modbus module
+        int modbusID;     // store this, it will link to the modbus item ID when we use it in the modbus module
         HASensorNumber voltage;
         HASensorNumber current;
         HASensorNumber activePower;

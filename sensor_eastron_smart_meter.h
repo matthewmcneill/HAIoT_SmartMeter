@@ -31,6 +31,8 @@ float readFloatFromRegisters(int& registerCounter) {
     uint16_t lowRegister = 0x0000;  // Default value to 0 
 
     // try and read two registers
+
+    // first register
     if (ModbusRTUClient.available()) {
       highRegister = ModbusRTUClient.read();
     } else {
@@ -38,6 +40,7 @@ float readFloatFromRegisters(int& registerCounter) {
     }
     registerCounter += 1; // increment anyway to continue switching through the registers
 
+    // second register
     if (ModbusRTUClient.available()) {
       lowRegister = ModbusRTUClient.read();
     } else {
@@ -45,6 +48,7 @@ float readFloatFromRegisters(int& registerCounter) {
     }
     registerCounter += 1; // increment anyway to continue switching through the registers
 
+    // combine 2 x 16 bit ints into a 32 bit float
     uint32_t combinedBits = (static_cast<uint32_t>(highRegister) << 16) | lowRegister; // Combine bits
     float result;
     std::memcpy(&result, &combinedBits, sizeof(float)); // Interpret as float
@@ -59,8 +63,8 @@ void readMeterAndUpdateHA(HADataType::HAEntitiesType smartMeterHA) {
   int startRegister;        // address of the first register of the block being loaded 
   int endRegister;          // address of the last register of the block being loaded
 
-  // break the meter reading into multiple blocks and 
-  // do one read and then parse out each block
+  // break the meter reading into multiple blocks (the readings are spread out in 
+  // the register spectrum) and do one read and then parse out each block
   // there are three blocks with large gaps between them
   // within each block there are a lot of unused registers
   // register values come from the spec for the Eastron SDM120M
@@ -69,8 +73,8 @@ void readMeterAndUpdateHA(HADataType::HAEntitiesType smartMeterHA) {
   logStatus("Reading Block 30001-30096 Register values ... ");
   startRegister = baseRegister + 1;   // 30001 (inclusive)
   endRegister = baseRegister + 96;    // 30096 (inclusive)
-  // read a block Input Register values from (client) id, addressbetween the two register addresses 
-  // (start register offset form base)
+  // read a block Input Register values from (client) id, address between the two register addresses 
+  // (start register offset from base)
   // count of registers to load
   if (!ModbusRTUClient.requestFrom(smartMeterHA.modbusID, HOLDING_REGISTERS, startRegister - 1 - baseRegister, endRegister - startRegister + 1)) {
     logStatus("Sensor read over Modbus failed for block at " + String(startRegister));
@@ -140,7 +144,7 @@ void readMeterAndUpdateHA(HADataType::HAEntitiesType smartMeterHA) {
     }
   }
 
-  logStatus("Reading Block 30259-30265 Register values ... ");
+  logStatus("Reading Block 30259-30266 Register values ... ");
 
   startRegister = baseRegister + 259;  // 30259 (inclusive)
   endRegister = baseRegister + 266;    // 30266 (inclusive)
@@ -170,7 +174,7 @@ void readMeterAndUpdateHA(HADataType::HAEntitiesType smartMeterHA) {
     }
   }
 
-  logStatus("Reading Block 30343-30345 Register values ... ");
+  logStatus("Reading Block 30343-30346 Register values ... ");
 
   startRegister = baseRegister + 343;  // 30343 (inclusive)
   endRegister = baseRegister + 346;    // 30346 (inclusive)
