@@ -1,9 +1,15 @@
 // ----[CONFIG MODULE]----- 
 // software configurations and definitions
 #pragma once
+#include <Arduino.h>
 #include <Preferences.h>
 #include "sys_logStatus.h"
 #include "sys_serial_utils.h"
+
+// Nano ESP 32 - for chip UID
+#ifdef ARDUINO_ARCH_ESP32
+  #include <esp_system.h>
+#endif
 
 // to help with debugging, if you want to disable the interactive Serial config options
 // set this to true and it will not force interactive
@@ -13,10 +19,15 @@ Preferences preferences;
 
 struct ConfigurationStructType {
   // general configuration items, defaults can be specified here, leave blank if you want to use interactive setup
-  String deviceID               = "cbiot_EastronPowerMeters";       // used for WiFi and Home Assistant device IDs
-  String deviceSoftwareVersion  = "1.0.1";                          // used by Home Assistant
+  String deviceID               = "";                               // used for WiFi and Home Assistant device IDs
+  String deviceSoftwareVersion  = "1.0.0";                          // used by Home Assistant
   String deviceManufacturer     = "Arduino";                        // used by Home Assistant
+#ifdef ARDUINO_ARCH_SAMD
   String deviceModel            = "Nano 33 IoT";                    // used by Home Assistant
+#endif
+#ifdef ARDUINO_ARCH_ESP32
+  String deviceModel            = "Nano ESP32 S3";                    // used by Home Assistant
+#endif
   String timeZone               = "Europe/London";                  // used by NTP Time Libraries
   IPAddress mqttBrokerAddress   = IPAddress(0,0,0,0);               // used by Home Assistant for MQTT broker
 
@@ -156,5 +167,31 @@ void setupConfig() {
     );
 
   preferences.end();
+
+}
+
+String getUniqueChipID() {
+
+#ifdef ARDUINO_ARCH_SAMD
+  // Get the unique device ID (for SAMD-based boards)
+  uint32_t uniqueID = *(uint32_t*)0x0080A00C;
+
+  // Convert the ID to a string (hexadecimal representation)
+  char uniqueIDStr[9]; // 8 hex digits + null terminator
+  sprintf(uniqueIDStr, "%08X", uniqueID);
+
+  return String(uniqueIDStr);
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+  uint64_t chipid = ESP.getEfuseMac(); // The chip ID is essentially its MAC address(length: 6 bytes).
+  uint16_t chip = (uint16_t)(chipid >> 32);
+
+  // Convert the ID to a string (hexadecimal representation)
+  char uniqueIDStr[9]; // 8 hex digits + null terminator
+  sprintf(uniqueIDStr, "%08X", chip);
+
+  return String(uniqueIDStr);
+#endif
 
 }

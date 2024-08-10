@@ -7,6 +7,26 @@
 #include "sys_config.h"
 #include "sys_logStatus.h"
 #include "sys_wifi.h"
+#include <Client.h>
+
+// ================================[ A cache of persistent strings for UIDs ]==================================
+// this hacky work around is required because the homeassistant library does not make local copies of the strings 
+// being used, but just keeps references to the pointers to the char arrays.  So it works fine with constants, 
+// but if you are using more dynamic values, which we need for uniqueness, then you need fixed char array 
+// memory address pointers.  Otherwise you will get all sorts of random data in your unique ids.
+// don't use <vectors> because the pointers can change, don't use Strings because the pointers can change.
+#include "sys_static_strings.h"
+
+// Save a string in the array and return a pointer to the saved string
+const char* newUid(const String& name, int instance = -1) {
+    String s_uid = getUniqueChipID();  
+    if (instance >= 0) {
+        s_uid = s_uid + "_" + String(instance);
+    }
+    s_uid = s_uid + "_" + name;  // put the name last in case its very long
+
+    return storeStaticString(s_uid);
+}
 
 // ====================================[ HA device + entity definition ]=======================================
 
@@ -18,7 +38,8 @@
 #include <ArduinoHADefines.h>   // HA libraries
 #include <ArduinoHA.h>          //  |
 #include <HADevice.h>           //  |
-#include <HAMqtt.h>             //  |
+#include <HAMqtt.h>             //  | 
+#define  PROVISION_MAX_ENTITIES 64
 #include <Thread.h>             // simple threading library for time event driven updates
 #include <ThreadController.h>   //  |
 
@@ -36,16 +57,17 @@ public:
     HADevice device; // HADevice entity object
     HAMqtt mqtt;     // mqtt communication object
     // Constructor for HADataType
-    HADataType(arduino::Client &netClient) :
+    HADataType(Client& netClient) :
         device(),                       
-        mqtt(netClient, this->device),  // needs to be constructed here with the newly created device in this order
-        meter1entities(1),              // volt meter on MODBUS device ID 1
-        meter2entities(2),              // volt meter on MODBUS device ID 2
+        mqtt(netClient, this->device, PROVISION_MAX_ENTITIES),  // needs to be constructed here with the newly created device in this order
+        meter1entities(1),                  // volt meter on MODBUS device ID 1
+        meter2entities(2),                  // volt meter on MODBUS device ID 2
         timers()
         {}; 
 
     // Nested class for defining the Entities on the device
     class HAEntitiesType {
+    
     public:            
         int modbusID;     // store this, it will link to the modbus item ID when we use it in the modbus module
         HASensorNumber voltage;
@@ -74,110 +96,112 @@ public:
         // Set up all the entities (note that event handlers are added later)
         HAEntitiesType(int clientID) : 
             modbusID(clientID), 
-            voltage(String("ups_" + String(clientID) + ".voltage").c_str(), HASensorNumber::PrecisionP2), 
-            current(String("ups_" + String(clientID) + ".current").c_str(), HASensorNumber::PrecisionP2), 
-            activePower(String("ups_" + String(clientID) + ".activePower").c_str(), HASensorNumber::PrecisionP2), 
-            apparentPower(String("ups_" + String(clientID) + ".apparentPower").c_str(), HASensorNumber::PrecisionP2), 
-            reactivePower(String("ups_" + String(clientID) + ".reactivePower").c_str(), HASensorNumber::PrecisionP2), 
-            powerFactor(String("ups_" + String(clientID) + ".powerFactor").c_str(), HASensorNumber::PrecisionP2), 
-            frequency(String("ups_" + String(clientID) + ".frequency").c_str(), HASensorNumber::PrecisionP2), 
-            importActiveEnergy(String("ups_" + String(clientID) + ".importActiveEnergy").c_str(), HASensorNumber::PrecisionP2), 
-            exportActiveEnergy(String("ups_" + String(clientID) + ".exportActiveEnergy").c_str(), HASensorNumber::PrecisionP2), 
-            importReactiveEnergy(String("ups_" + String(clientID) + ".importReactiveEnergy").c_str(), HASensorNumber::PrecisionP2), 
-            exportReactiveEnergy(String("ups_" + String(clientID) + ".exportReactiveEnergy").c_str(), HASensorNumber::PrecisionP2), 
-            totalSystemPowerDemand(String("ups_" + String(clientID) + ".totalSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            maxTotalSystemPowerDemand(String("ups_" + String(clientID) + ".maxTotalSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            importSystemPowerDemand(String("ups_" + String(clientID) + ".importSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            maxImportSystemPowerDemand(String("ups_" + String(clientID) + ".maxImportSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            exportSystemPowerDemand(String("ups_" + String(clientID) + ".exportSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            maxExportSystemPowerDemand(String("ups_" + String(clientID) + ".maxExportSystemPowerDemand").c_str(), HASensorNumber::PrecisionP2), 
-            currentDemand(String("ups_" + String(clientID) + ".currentDemand").c_str(), HASensorNumber::PrecisionP2), 
-            maxCurrentDemand(String("ups_" + String(clientID) + ".maxCurrentDemand").c_str(), HASensorNumber::PrecisionP2), 
-            totalActiveEnergy(String("ups_" + String(clientID) + ".totalActiveEnergy").c_str(), HASensorNumber::PrecisionP2), 
-            totalReactiveEnergy(String("ups_" + String(clientID) + ".totalReactiveEnergy").c_str(), HASensorNumber::PrecisionP2) 
+            voltage(                      newUid("voltage",clientID),                    HASensorNumber::PrecisionP2), 
+            current(                      newUid("current",clientID),                    HASensorNumber::PrecisionP2), 
+            activePower(                  newUid("activePower",clientID),                HASensorNumber::PrecisionP2), 
+            apparentPower(                newUid("apparentPower",clientID),              HASensorNumber::PrecisionP2), 
+            reactivePower(                newUid("reactivePower",clientID),              HASensorNumber::PrecisionP2), 
+            powerFactor(                  newUid("powerFactor",clientID),                HASensorNumber::PrecisionP2), 
+            frequency(                    newUid("frequency",clientID),                  HASensorNumber::PrecisionP2), 
+            importActiveEnergy(           newUid("importActiveEnergy",clientID),         HASensorNumber::PrecisionP2), 
+            exportActiveEnergy(           newUid("exportActiveEnergy",clientID),         HASensorNumber::PrecisionP2), 
+            importReactiveEnergy(         newUid("importReactiveEnergy",clientID),       HASensorNumber::PrecisionP2), 
+            exportReactiveEnergy(         newUid("exportReactiveEnergy",clientID),       HASensorNumber::PrecisionP2), 
+            totalSystemPowerDemand(       newUid("totalSystemPowerDemand",clientID),     HASensorNumber::PrecisionP2), 
+            maxTotalSystemPowerDemand(    newUid("maxTotalSystemPowerDemand",clientID),  HASensorNumber::PrecisionP2), 
+            importSystemPowerDemand(      newUid("importSystemPowerDemand",clientID),    HASensorNumber::PrecisionP2), 
+            maxImportSystemPowerDemand(   newUid("maxImportSystemPowerDemand",clientID), HASensorNumber::PrecisionP2), 
+            exportSystemPowerDemand(      newUid("exportSystemPowerDemand",clientID),    HASensorNumber::PrecisionP2), 
+            maxExportSystemPowerDemand(   newUid("maxExportSystemPowerDemand",clientID), HASensorNumber::PrecisionP2), 
+            currentDemand(                newUid("currentDemand",clientID),              HASensorNumber::PrecisionP2), 
+            maxCurrentDemand(             newUid("maxCurrentDemand",clientID),           HASensorNumber::PrecisionP2), 
+            totalActiveEnergy(            newUid("totalActiveEnergy",clientID),          HASensorNumber::PrecisionP2), 
+            totalReactiveEnergy(          newUid("totalReactiveEnergy",clientID),        HASensorNumber::PrecisionP2) 
             {
 
               voltage.setIcon("mdi:meter-electric-outline");
-              voltage.setName("Voltage");
+              voltage.setName(storeStaticString("[UPS " + String(clientID) + "] Voltage"));
               voltage.setUnitOfMeasurement("V");
 
-              current.setIcon("mdi:mdi:current-ac");
-              current.setName("Current");
+              current.setIcon("mdi:current-ac");
+              current.setName(storeStaticString("[UPS " + String(clientID) + "] Current"));
               current.setUnitOfMeasurement("A");
 
               activePower.setIcon("mdi:transmission-tower");
-              activePower.setName("Active Power");
+              activePower.setName(storeStaticString("[UPS " + String(clientID) + "] Active Power"));
               activePower.setUnitOfMeasurement("W");
 
               apparentPower.setIcon("mdi:transmission-tower");
-              apparentPower.setName("Apparent Power");
+              apparentPower.setName(storeStaticString("[UPS " + String(clientID) + "] Apparent Power"));
               apparentPower.setUnitOfMeasurement("W");
               
               reactivePower.setIcon("mdi:transmission-tower");
-              reactivePower.setName("Reactive Power");
+              reactivePower.setName(storeStaticString("[UPS " + String(clientID) + "] Reactive Power"));
               reactivePower.setUnitOfMeasurement("W");
               
               powerFactor.setIcon("mdi:ab-testing");
-              powerFactor.setName("Power Factor");
+              powerFactor.setName(storeStaticString("[UPS " + String(clientID) + "] Power Factor"));
 
               frequency.setIcon("mdi:sine-wave");
-              frequency.setName("Frequency");
+              frequency.setName(storeStaticString("[UPS " + String(clientID) + "] Frequency"));
               frequency.setUnitOfMeasurement("Hz");             
 
               importActiveEnergy.setIcon("mdi:transmission-tower-import");
-              importActiveEnergy.setName("Active Energy Import");
+              importActiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Active Energy Import"));
               importActiveEnergy.setUnitOfMeasurement("kWh");    
 
               exportActiveEnergy.setIcon("mdi:transmission-tower-export");
-              exportActiveEnergy.setName("Reactive Energy Export");
+              exportActiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Reactive Energy Export"));
               exportActiveEnergy.setUnitOfMeasurement("kWh");                  
 
               importReactiveEnergy.setIcon("mdi:transmission-tower-import");
-              importReactiveEnergy.setName("Reactive Energy Import");
+              importReactiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Reactive Energy Import"));
               importReactiveEnergy.setUnitOfMeasurement("kvarh");    
 
               exportReactiveEnergy.setIcon("mdi:transmission-tower-export");
-              exportReactiveEnergy.setName("Reactive Energy Export");
+              exportReactiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Reactive Energy Export"));
               exportReactiveEnergy.setUnitOfMeasurement("kvarh");     
 
               totalSystemPowerDemand.setIcon("mdi:transmission-tower");
-              totalSystemPowerDemand.setName("Total System Power Demand");
+              totalSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Total System Power Demand"));
               totalSystemPowerDemand.setUnitOfMeasurement("W");
 
               maxTotalSystemPowerDemand.setIcon("mdi:transmission-tower");
-              maxTotalSystemPowerDemand.setName("Max Total System Power Demand");
+              maxTotalSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Max Total System Power Demand"));
               maxTotalSystemPowerDemand.setUnitOfMeasurement("W");
 
               importSystemPowerDemand.setIcon("mdi:transmission-tower-import");
-              importSystemPowerDemand.setName("Import System Power Demand");
+              importSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Import System Power Demand"));
               importSystemPowerDemand.setUnitOfMeasurement("W");
 
               maxImportSystemPowerDemand.setIcon("mdi:transmission-tower-import");
-              maxImportSystemPowerDemand.setName("Max Import System Power Demand");
+              maxImportSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Max Import System Power Demand"));
               maxImportSystemPowerDemand.setUnitOfMeasurement("W");
 
               exportSystemPowerDemand.setIcon("mdi:transmission-tower-export");
-              exportSystemPowerDemand.setName("Export System Power Demand");
+              exportSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Export System Power Demand"));
               exportSystemPowerDemand.setUnitOfMeasurement("W");
 
               maxExportSystemPowerDemand.setIcon("mdi:transmission-tower-export");
-              maxExportSystemPowerDemand.setName("Max Export System Power Demand");
+              maxExportSystemPowerDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Max Export System Power Demand"));
               maxExportSystemPowerDemand.setUnitOfMeasurement("W");
 
-              currentDemand.setIcon("mdi:mdi:current-ac");
-              currentDemand.setName("Current Demand");
+              currentDemand.setIcon("mdi:current-ac");
+              currentDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Current Demand"));
               currentDemand.setUnitOfMeasurement("A");
 
-              maxCurrentDemand.setIcon("mdi:mdi:current-ac");
-              maxCurrentDemand.setName("Max Current Demand");
+              maxCurrentDemand.setIcon("mdi:current-ac");
+              maxCurrentDemand.setName(storeStaticString("[UPS " + String(clientID) + "] Max Current Demand"));
               maxCurrentDemand.setUnitOfMeasurement("A");
 
               totalActiveEnergy.setIcon("mdi:transmission-tower");
-              totalActiveEnergy.setName("Total Active Energy");
+              totalActiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Total Active Energy"));
               totalActiveEnergy.setUnitOfMeasurement("kWh");
+              totalActiveEnergy.setDeviceClass("energy");      // show up in energy dashboard
+              totalActiveEnergy.setStateClass("total");        // show up in energy dashboard
 
               totalReactiveEnergy.setIcon("mdi:transmission-tower");
-              totalReactiveEnergy.setName("Total Reactive Energy");
+              totalReactiveEnergy.setName(storeStaticString("[UPS " + String(clientID) + "] Total Reactive Energy"));
               totalReactiveEnergy.setUnitOfMeasurement("kvarh");
 
             }

@@ -48,3 +48,10 @@ bool promptAndReadYesNo(String prompt, bool defaultValue) {
   yesno.toLowerCase();
   return (yesno.startsWith("y"));
 }
+
+void promptWaitForUser() {
+  if (Serial) {
+    //only do this if serial port is up
+    promptAndReadLine("System waiting... ", "press enter to continue");
+  }
+}
