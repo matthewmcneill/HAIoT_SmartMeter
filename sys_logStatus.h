@@ -1,5 +1,20 @@
-// ----[LOGGING AND DEBUG MODULE]----- 
-// set of standard routines for logging and debugging
+/**
+ * @file sys_logStatus.h
+ * @author Matthew McNeill
+ * @brief Logging and debug status utilities with Serial and LED feedback.
+ * @version 1.0.0
+ * @date 2025-12-25
+ * 
+ * @section api Public API
+ * - `setupLog()`: Configures serial port and debug pins.
+ * - `logStatus()`: Logs a status message and blinks status LED.
+ * - `logError()`: Logs an error message and blinks error pattern.
+ * - `logText()`: Low-level formatted output to serial.
+ * - `blinkLED()`: Utility for visual feedback.
+ * 
+ * License: GPLv3 (see project LICENSE file for details)
+ */
+
 // Variadic macros used for debugging to print information in de-bugging mode from LarryD, Arduino forum
 
 #pragma once
@@ -18,6 +33,12 @@
   #define DPRINTLN(...)
 #endif
 
+/**
+ * @brief Utility to blink the built-in LED.
+ * 
+ * @param duration Period of each blink in milliseconds.
+ * @param numberOfTimes Total number of blinks to perform.
+ */
 void blinkLED(int duration, int numberOfTimes = 1) {
 #ifdef DEBUG_LED
   bool state = (digitalRead(LED_BUILTIN) == HIGH);
@@ -30,6 +51,10 @@ void blinkLED(int duration, int numberOfTimes = 1) {
 #endif
 }
 
+/**
+ * @brief Initializes the serial port and LED pins for logging.
+ * Waits briefly for a serial connection before proceeding.
+ */
 void setupLog() {
 #ifdef DEBUG_LED
   pinMode(LED_BUILTIN, OUTPUT);
@@ -48,20 +73,41 @@ void setupLog() {
   }
 }
 
+/**
+ * @brief Logs a raw string to the serial port.
+ * 
+ * @param msg The message to log.
+ */
 void logText(String msg) { 
   DPRINTLN(msg); 
 }
 
+/**
+ * @brief Logs a status message and provides visual LED feedback.
+ * 
+ * @param msg The status message to log.
+ */
 void logStatus(String msg) {
   logText(msg);
   blinkLED(50);
 }
 
+/**
+ * @brief Logs an error message and provides urgent LED blink feedback.
+ * 
+ * @param msg The error message to log.
+ */
 void logError(String msg) {
   logText("Error: " + msg);
   blinkLED(100, 3);
 }
 
+/**
+ * @brief Logs a critical failure and suspends program execution.
+ * Enters an infinite loop with blinking LED feedback.
+ * 
+ * @param msg The reason for suspension.
+ */
 void logSuspend(String msg) {
   logText("Execution suspended: " + msg);
   while (true) {

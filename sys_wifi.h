@@ -1,5 +1,19 @@
-// ----[WIFI CONTROL MODULE]----- 
-// built for Arduino IoT 33 wifi board
+/**
+ * @file sys_wifi.h
+ * @author Matthew McNeill
+ * @brief WiFi connectivity and resilient network client management.
+ * @version 1.0.0
+ * @date 2025-12-25
+ * 
+ * @section api Public API
+ * - `setupWiFi()`: Initializes WiFi hardware and connects to network.
+ * - `setupResilientClient()`: Configures `networkClient` (Secure/Plain) for MQTT.
+ * - `networkClient`: Global instance of `ResilientClient` for networking.
+ * - `loopWiFi()`: Handles background WiFi maintenance.
+ * 
+ * License: GPLv3 (see project LICENSE file for details)
+ */
+//
 // based on the tutorials by Alex Astrum
 // https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
 
@@ -99,6 +113,10 @@ void connectToWiFi()
   logStatus("Connected to WiFi.");
 }
 
+/**
+ * @brief Initializes the WiFi hardware and establishes a network connection.
+ * Handles hardware error checks and retries connection on failure.
+ */
 void setupWiFi()
 {
   int status = WiFi.status();
@@ -147,7 +165,7 @@ WiFiClientSecure sslClient;        // ESP32 secure client
 #endif
 
 #ifdef ARDUINO_ARCH_SAMD
-BearSSLClient sslClient(baseClient); // SAMD secure client wrapper (requires ArduinoBearSSL)
+WiFiSSLClient sslClient;           // SAMD secure client (uses WiFi module firmware TLS)
 #endif
 
 // A proxy client that allows switching between plain and secure at runtime
@@ -176,6 +194,12 @@ ResilientClient networkClient; // Declared instance separately
  * Returns true if TLS is enabled, false if plain.
  * This is autonomous and handles its own time sync and config retrieval.
  */
+/**
+ * @brief Configures the global `networkClient` for the current network environment.
+ * Sets up TLS/SSL anchors and time sync if a Root CA is configured.
+ * 
+ * @return bool True if TLS/SSL is enabled, false if plain communication is used.
+ */
 bool setupResilientClient() {
     if (config.secretMqttCA.length() > 0) {
         logStatus("Network Security: TLS enabled.");
@@ -191,9 +215,8 @@ bool setupResilientClient() {
         }
 
 #ifdef ARDUINO_ARCH_SAMD
-        ArduinoBearSSL.onGetTime(getTime);
-        static BearSSL::X509List cert(config.secretMqttCA.c_str());
-        sslClient.setTrustAnchors(&cert);
+        // WiFiSSLClient handles certificates via the NINA firmware. 
+        // No runtime certificate injection is supported via this class.
 #endif
 
 #ifdef ARDUINO_ARCH_ESP32

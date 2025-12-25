@@ -24,7 +24,14 @@
 #define MODBUS_SERIAL_BAUD  9600  // Baud rate for esp32 and max485 communication
 
 // setup the RS485 class on Serial1, we will need to begin Serial1 with the same params
+#ifdef ARDUINO_ARCH_ESP32
+// ESP32 does not have a default RS485 object defined in the library, so we define one here.
+// Note: Rename back to RS485 because ArduinoModbus has a hard-coded dependency on this global name.
 RS485Class RS485(Serial1, MODBUS_TX_PIN, MODBUS_DE_PIN, MODBUS_RE_PIN); 
+#endif
+
+// For SAMD (Nano 33 IoT), the RS485Class RS485 object is already defined by the ArduinoRS485 library.
+// We will use that global object directly below.
 
 //floats are 32bit values.  Modbus registers are 16 bit, so 2 registers are used to 
 // hold the value, therefore we have to do 2 reads and combine them.

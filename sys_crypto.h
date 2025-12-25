@@ -1,5 +1,19 @@
-// ----[CRYPTO CONTROL MODULE]----- 
-// built for Arduino IoT 33 wifi board
+/**
+ * @file sys_crypto.h
+ * @author Matthew McNeill
+ * @brief Encryption and secure storage utilities using ECC608 and software AES.
+ * @version 1.0.0
+ * @date 2025-12-25
+ * 
+ * @section api Public API
+ * - `setupCrypto()`: Initializes the crypto module and ECC608 chip if available.
+ * - `deriveHardwareKey()`: Generates a hardware-locked encryption key.
+ * - `encryptSecret()`: Encrypts a string using AES-256-CBC and returns Base64.
+ * - `decryptSecret()`: Decrypts a Base64 encoded AES-256-CBC string.
+ * 
+ * License: GPLv3 (see project LICENSE file for details)
+ */
+//
 // based on the tutorials by Alex Astrum
 // https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
 //
@@ -85,6 +99,12 @@ bool keyInitialized = false;
 
 // Derive a hardware-locked shared secret using the ECC608 chip (if present)
 // or a software fallback for ESP32 using the unique chip MAC
+/**
+ * @brief Derives a hardware-locked encryption key.
+ * Uses ECC608 serial number on SAMD or ESP32 MAC as a unique seed.
+ * 
+ * @return bool True if key derivation was successful.
+ */
 bool deriveHardwareKey() {
   if (keyInitialized) return true;
 
@@ -142,6 +162,13 @@ bool deriveHardwareKey() {
 }
 
 // AES-256-CBC Encryption
+/**
+ * @brief Encrypts a plaintext string using AES-256-CBC.
+ * Prepends a random 16-byte IV and returns the result as a Base64 string.
+ * 
+ * @param plaintext The string to encrypt.
+ * @return String Base64 encoded encrypted payload (IV + ciphertext).
+ */
 String encryptSecret(String plaintext) {
   if (!deriveHardwareKey()) return plaintext;
 
@@ -206,6 +233,13 @@ String encryptSecret(String plaintext) {
 }
 
 // AES-256-CBC Decryption
+/**
+ * @brief Decrypts a Base64-encoded encrypted string.
+ * Expects the first 16 bytes to be the CBC Initialization Vector.
+ * 
+ * @param base64Data The Base64 encoded payload to decrypt.
+ * @return String The decrypted plaintext string, or original data on failure.
+ */
 String decryptSecret(String base64Data) {
   if (!deriveHardwareKey()) return base64Data;
   
@@ -346,6 +380,10 @@ void configureCrypto() {
 
 }
 
+/**
+ * @brief Initializes hardware crypto and performs integrity checks.
+ * On interactive connection (Serial), orchestrates provisioning if needed.
+ */
 void setupCrypto()
 {
 

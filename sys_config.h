@@ -1,5 +1,18 @@
-// ----[CONFIG MODULE]----- 
-// software configurations and definitions
+/**
+ * @file sys_config.h
+ * @author Matthew McNeill
+ * @brief Software configurations and persistent preferences management.
+ * @version 1.0.0
+ * @date 2025-12-25
+ * 
+ * @section api Public API
+ * - `config`: Global instance of `ConfigurationStructType` containing all settings.
+ * - `setupConfig()`: Initializes preferences and loads/prompts for configuration.
+ * - `getUniqueChipID()`: Returns a unique hardware identifier string.
+ * 
+ * License: GPLv3 (see project LICENSE file for details)
+ */
+ 
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
@@ -21,8 +34,38 @@
 
 Preferences preferences;
 
+/**
+ * @brief Metadata for a configuration parameter.
+ * 
+ * @param key The internal preference key string (max 15 chars for Preferences library).
+ * @param mandatory If true, initialization will block until a value is provided.
+ * @param isSecret If true, the value is stored encrypted via the sys_crypto module.
+ * @param isConfigurable If true, the parameter can be reconfigured interactively.
+ * @param prompt The descriptive text shown to the user during interactive configuration.
+ */
+struct ConfigParam {
+  const char* key;
+  bool mandatory;
+  bool isSecret;
+  bool isConfigurable;
+  const char* prompt;
+};
+
 struct ConfigurationStructType {
-  // general configuration items, defaults can be specified here, leave blank if you want to use interactive setup
+  // Metadata definitions             <NAME>                <KEY>            <MANDATORY> <SECRET> <CONFIGURABLE> <PROMPT> 
+  static inline constexpr ConfigParam PARAM_DEVICE_ID    = {"dvc_id",         true,       false,   true,          "Enter a unique network device ID that is used when connecting to the WifI and Home Assistant: "};
+  static inline constexpr ConfigParam PARAM_MANUFACTURER = {"dvc_manuf",      false,      false,   false,         "Device Manufacturer: this should not need to be configured: "};
+  static inline constexpr ConfigParam PARAM_MODEL        = {"dvc_model",      false,      false,   false,         "Device Model: this should not need to be configured: "};
+  static inline constexpr ConfigParam PARAM_TIMEZONE     = {"tz",             true,       false,   true,          "Enter a standard TimeZone for your device to configure local time. A full list is available here https://en.wikipedia.org/wiki/List_of_tz_database_time_zones : "};
+  static inline constexpr ConfigParam PARAM_MQTT_BROKER  = {"mqtt_broker_ip", true,       false,   true,          "Please enter a valid IP address for the MQTT broker: "};
+  // Secret Items (really should NOT have defaults specificed here in the source code)
+  static inline constexpr ConfigParam PARAM_WIFI_SSID    = {"s_wifi_ssid",    true,       true,    true,          "Enter your WiFi network SSID: "};
+  static inline constexpr ConfigParam PARAM_WIFI_PWD     = {"s_wifi_pwd",     true,       true,    true,          "Enter your WiFi password: "};
+  static inline constexpr ConfigParam PARAM_MQTT_USER    = {"s_mqtt_user",    true,       true,    true,          "Enter your MQTT broker user name: "};
+  static inline constexpr ConfigParam PARAM_MQTT_PWD     = {"s_mqtt_pwd",     true,       true,    true,          "Enter your MQTT broker password: "};
+  static inline constexpr ConfigParam PARAM_MQTT_CA      = {"s_mqtt_ca",      false,      true,    true,          "Enter your MQTT Broker Root CA (PEM format, or leave empty for plain MQTT): "};
+
+  // General configuration items
   String deviceID               = "";                               // used for WiFi and Home Assistant device IDs
   String deviceSoftwareVersion  = "1.0.0";                          // used by Home Assistant
   String deviceManufacturer     = "Arduino";                        // used by Home Assistant
@@ -44,6 +87,18 @@ struct ConfigurationStructType {
 } config;
 
 
+/**
+ * @brief Loads a configuration value from persistent storage (Preferences).
+ * Supports versioned plaintext and encrypted formats.
+ * 
+ * @param key The preference key to look up.
+ * @param defaultValue Value to return if key is missing.
+ * @param prompt Prompt string for interactive setup.
+ * @param mandatory If true, keeps asking for input until a value is provided.
+ * @param force If true, clears existing value and forces a new prompt.
+ * @param isSecret If true, value is stored encrypted using sys_crypto.
+ * @return String The loaded or newly entered configuration value.
+ */
 String loadConfig(String key, String defaultValue = "", String prompt = "", bool mandatory = false, bool force = false, bool isSecret = false) {
   // assumes a preferences namespace has been opened
   String rawValue = preferences.getString(key.c_str(), "");
@@ -102,13 +157,23 @@ String loadConfig(String key, String defaultValue = "", String prompt = "", bool
     preferences.putString(key.c_str(), valueToSave);
   }
 
-  // uncomment this line to get a serial readout of your configuraiton on startup
-  // logText("Config: " + key + " = " + value);
-
   return value;
 }
 
+/**
+ * @brief Overload of loadConfig that uses ConfigParam metadata.
+ */
+String loadConfig(ConfigParam param, String defaultValue = "", bool force = false) {
+  // combine the global reconfigure intent with the individual parameter's capability
+  bool doForce = force && param.isConfigurable;
+  return loadConfig(param.key, defaultValue, param.prompt, param.mandatory, doForce, param.isSecret);
+}
 
+
+/**
+ * @brief Orchestrates the interactive device configuration.
+ * Prompts user for WiFi, MQTT, and regional settings if needed or requested.
+ */
 void setupConfig() {
   bool doReconfigure;
 
@@ -120,113 +185,39 @@ void setupConfig() {
     doReconfigure = false;
   }
 
+  // Load General Config
   preferences.begin("config");
-
-    config.deviceID = loadConfig(
-      "dvc_id", 
-      config.deviceID,
-      "Enter a unique network device ID that is used when connecting to the WifI and Home Assistant: ",
-      true,
-      doReconfigure,
-      false // not secret
-    );
-
-    config.deviceManufacturer = loadConfig(
-      "dvc_manuf", 
-      config.deviceManufacturer,
-      "Device Manufacturer: this should not need to be configured: ",
-      false,
-      false,
-      false // not secret
-    );
-
-    config.deviceModel = loadConfig(
-      "dvc_model", 
-      config.deviceModel,
-      "Device Model: this should not need to be configured: ",
-      false,
-      false,
-      false // not secret
-    );
-
-    config.timeZone = loadConfig(
-      "tz", 
-      config.timeZone,
-      "Enter a standard TimeZone for your device to configure local time. A full list is available here https://en.wikipedia.org/wiki/List_of_tz_database_time_zones : ",
-      true,
-      doReconfigure,
-      false // not secret
-    );
+    config.deviceID           = loadConfig(config.PARAM_DEVICE_ID,    config.deviceID,         doReconfigure);
+    config.deviceManufacturer = loadConfig(config.PARAM_MANUFACTURER, config.deviceManufacturer, doReconfigure);
+    config.deviceModel        = loadConfig(config.PARAM_MODEL,        config.deviceModel,        doReconfigure);
+    config.timeZone           = loadConfig(config.PARAM_TIMEZONE,     config.timeZone,         doReconfigure);
 
     while (!config.mqttBrokerAddress.fromString( 
-      loadConfig(
-        "mqtt_broker_ip", 
-        config.mqttBrokerAddress.toString(),
-        "Please enter a valid IP address for the MQTT broker: ",
-        true,
-        doReconfigure,
-        false // not secret
-      ).c_str() )) 
+      loadConfig(config.PARAM_MQTT_BROKER, config.mqttBrokerAddress.toString(), doReconfigure).c_str() )) 
     {
       logStatus("Could not parse IP Address, or IP address is unconfigured value 0.0.0.0, please try again.");
     }
-    
   preferences.end();
 
   // Ensure hardware key is derived before loading secrets
   deriveHardwareKey();
 
+  // Load Secrets
   preferences.begin("secrets");
-
-    config.secretWiFiSSID = loadConfig(
-      "s_wifi_ssid", 
-      config.secretWiFiSSID,
-      "Enter your WiFi network SSID: ",
-      true,
-      doReconfigure,
-      true // secret
-    );
-
-    config.secretWiFiPassword = loadConfig(
-      "s_wifi_pwd", 
-      config.secretWiFiPassword,
-      "Enter your WiFi password: ",
-      true,
-      doReconfigure,
-      true // secret
-    );
-
-    config.secretMqttUser = loadConfig(
-      "s_mqtt_user", 
-      config.secretMqttUser,
-      "Enter your MQTT broker user name: ",
-      true,
-      doReconfigure,
-      true // secret
-    );
-
-    config.secretMqttPassword = loadConfig(
-      "s_mqtt_pwd", 
-      config.secretMqttPassword,
-      "Enter your MQTT broker password: ",
-      true,
-      doReconfigure,
-      true // secret
-    );
-
-    config.secretMqttCA = loadConfig(
-      "s_mqtt_ca", 
-      config.secretMqttCA,
-      "Enter your MQTT Broker Root CA (PEM format, or leave empty for plain MQTT): ",
-      false, // not mandatory
-      doReconfigure,
-      true // secret
-    );
-
+    config.secretWiFiSSID     = loadConfig(config.PARAM_WIFI_SSID,    config.secretWiFiSSID,     doReconfigure);
+    config.secretWiFiPassword = loadConfig(config.PARAM_WIFI_PWD,     config.secretWiFiPassword, doReconfigure);
+    config.secretMqttUser     = loadConfig(config.PARAM_MQTT_USER,    config.secretMqttUser,     doReconfigure);
+    config.secretMqttPassword = loadConfig(config.PARAM_MQTT_PWD,     config.secretMqttPassword, doReconfigure);
+    config.secretMqttCA       = loadConfig(config.PARAM_MQTT_CA,      config.secretMqttCA,       doReconfigure);
   preferences.end();
-
 }
 
+/**
+ * @brief Retrieves a unique hardware ID for the chip.
+ * Uses ESP32 MAC or SAMD's unique serial number.
+ * 
+ * @return String 8-character hex represention of the unique ID.
+ */
 String getUniqueChipID() {
 
 #ifdef ARDUINO_ARCH_SAMD
