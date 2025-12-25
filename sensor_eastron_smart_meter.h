@@ -11,7 +11,6 @@
 
 #include <cstring> // For memcpy
 #include "sys_logStatus.h"
-
 #include "home_assistant.h"
 
 // ArduinoModbus depends on the ArduinoRS485 library - had to edit this library for the ESP32
@@ -94,7 +93,38 @@ void printRegistersToSerial(int id, int type, int address, int nb) {
 }
 */
 
-void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType smartMeterHA, int startRegister, int endRegister) {
+// mapping structure to link Modbus register addresses to HA entities
+struct ModbusMapping {
+    int address;
+    HASensorNumber HADataType::HAEntitiesType::* member;
+};
+
+// Define all the mappings for the Eastron SDM120M
+const ModbusMapping smartMeterMappings[] = {
+    {30001, &HADataType::HAEntitiesType::voltage},
+    {30007, &HADataType::HAEntitiesType::current},
+    {30013, &HADataType::HAEntitiesType::activePower},
+    {30019, &HADataType::HAEntitiesType::apparentPower},
+    {30025, &HADataType::HAEntitiesType::reactivePower},
+    {30031, &HADataType::HAEntitiesType::powerFactor},
+    {30071, &HADataType::HAEntitiesType::frequency},
+    {30073, &HADataType::HAEntitiesType::importActiveEnergy},
+    {30075, &HADataType::HAEntitiesType::exportActiveEnergy},
+    {30077, &HADataType::HAEntitiesType::importReactiveEnergy},
+    {30079, &HADataType::HAEntitiesType::exportReactiveEnergy},
+    {30085, &HADataType::HAEntitiesType::totalSystemPowerDemand},
+    {30087, &HADataType::HAEntitiesType::maxTotalSystemPowerDemand},
+    {30089, &HADataType::HAEntitiesType::importSystemPowerDemand},
+    {30091, &HADataType::HAEntitiesType::maxImportSystemPowerDemand},
+    {30093, &HADataType::HAEntitiesType::exportSystemPowerDemand},
+    {30095, &HADataType::HAEntitiesType::maxExportSystemPowerDemand},
+    {30259, &HADataType::HAEntitiesType::currentDemand},
+    {30265, &HADataType::HAEntitiesType::maxCurrentDemand},
+    {30343, &HADataType::HAEntitiesType::totalActiveEnergy},
+    {30345, &HADataType::HAEntitiesType::totalReactiveEnergy}
+};
+
+void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA, int startRegister, int endRegister) {
   uint16_t unusedRegister;  // value to sink unused values when read
   int currentRegister;      // tracks the address of the current register
   int baseRegister = 30000; // holding registers start at the base of 30000
@@ -107,96 +137,39 @@ void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType smartMeterHA, int s
   endRegister += baseRegister;    
   logText("Reading Block " + String(startRegister) + "-" + String(endRegister) +" Register values for Modbus Client [" + String(smartMeterHA.modbusID) + "]");
 
-//  printRegistersToSerial(smartMeterHA.modbusID, INPUT_REGISTERS, startRegister - 1 - baseRegister, endRegister - startRegister + 1);
-
   // read a block Input Register values from (client) id, address between the two register addresses 
-  // (start register offset from base)
-  // count of registers to load
   status = ModbusRTUClient.requestFrom(smartMeterHA.modbusID, INPUT_REGISTERS, startRegister - 1 - baseRegister, endRegister - startRegister + 1); 
   if (status == 0) {
     logError("Sensor read over Modbus failed");
     logError(ModbusRTUClient.lastError());
   } else {
     logStatus("Read " + String(status) + " registers successfully");
-    // need to iterate through the registers 
+    
     currentRegister = startRegister;
     while (currentRegister <= endRegister) {
-      // read the float for each value, send to home assistant and move the current registers on
-      switch (currentRegister) {
-        case 30001:
-          smartMeterHA.voltage.setValue(readFloatFromRegisters(currentRegister));
+      bool found = false;
+
+      // check if the current register has a mapping
+      for (const auto& mapping : smartMeterMappings) {
+        if (currentRegister == mapping.address) {
+          // call setValue on the HA entity and update currentRegister (reads 2 registers)
+          (smartMeterHA.*(mapping.member)).setValue(readFloatFromRegisters(currentRegister));
+          found = true;
           break;
-        case 30007:
-          smartMeterHA.current.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30013:
-          smartMeterHA.activePower.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30019:
-          smartMeterHA.apparentPower.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30025:
-          smartMeterHA.reactivePower.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30031:
-          smartMeterHA.powerFactor.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30071:
-          smartMeterHA.frequency.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30073:
-          smartMeterHA.importActiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30075:
-          smartMeterHA.exportActiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30077:
-          smartMeterHA.importReactiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30079:
-          smartMeterHA.exportReactiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30085:
-          smartMeterHA.totalSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30087:
-          smartMeterHA.maxTotalSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30089:
-          smartMeterHA.importSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30091:
-          smartMeterHA.maxImportSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30093:
-          smartMeterHA.exportSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30095:
-          smartMeterHA.maxExportSystemPowerDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30259:
-          smartMeterHA.currentDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30265:
-          smartMeterHA.maxCurrentDemand.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30343:
-          smartMeterHA.totalActiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        case 30345:
-          smartMeterHA.totalReactiveEnergy.setValue(readFloatFromRegisters(currentRegister));
-          break;
-        default:
-          // no parameter to load, do a read and move to next register
-          unusedRegister = ModbusRTUClient.read(); 
-          currentRegister += 1;
+        }
+      }
+
+      if (!found) {
+        // no parameter to load, do a read and move to next register
+        unusedRegister = ModbusRTUClient.read(); 
+        currentRegister += 1;
       }
     }
   }
-
 }
 
-void readMeterAndUpdateHA(HADataType::HAEntitiesType smartMeterHA) {
+
+void readMeterAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA) {
   // break the meter reading into multiple blocks (the readings are spread out in 
   // the register spectrum) and do one read and then parse out each block
   // there are three blocks with large gaps between them
@@ -219,8 +192,16 @@ void onSensorUpdateEvent() {
 void setupSmartMeter() {
   logStatus("Setting up RS485 Serial Port");
   //create the RS485 serial port
+#if defined(ARDUINO_ARCH_ESP32)
+  // ESP32 supports pin remapping for Serial1
   Serial1.begin(MODBUS_SERIAL_BAUD, SERIAL_8N1, MODBUS_RX_PIN, MODBUS_TX_PIN);
+#else
+  // SAMD (Nano 33 IoT) uses fixed pins 0 (RX) and 1 (TX) for Serial1
+  Serial1.begin(MODBUS_SERIAL_BAUD, SERIAL_8N1);
+#endif
+
   RS485.begin(MODBUS_SERIAL_BAUD);
+
 
   logStatus("Setting up Modbus RTU Client to connect to Eastron");
   // start the Modbus RTU client (note that params must be the same as above)

@@ -8,20 +8,23 @@
 #include <Arduino.h>
 
 //Nano IOT 33
-#ifdef ARDUINO_ARCH_SAMD
-  #include <WiFiNINA.h>
-  #include <utility/wifi_drv.h>
-#endif
-
-// Nano ESP 32
 #ifdef ARDUINO_ARCH_ESP32
   #include <WiFi.h>
   #include <esp_wifi.h>
+  #include <WiFiClientSecure.h>
   #define WL_MAC_ADDR_LENGTH 6
+#endif
+
+#ifdef ARDUINO_ARCH_SAMD
+  #include <WiFiNINA.h>
+  #include <utility/wifi_drv.h>
+  #include <ArduinoBearSSL.h>
 #endif
 
 #include "sys_config.h"
 #include "sys_logStatus.h"
+#include <ArduinoECCX08.h>
+#include "sys_time.h"
 
 /**
  * Re-initialize the WiFi driver.
@@ -133,4 +136,83 @@ String getWiFiMACAddressAsString(bool includeColons = true) {
   }
 
   return macAddress;
+}
+
+// ================================[ Resilient Network Client ]==================================
+
+WiFiClient baseClient;             // standard unencrypted client
+
+#ifdef ARDUINO_ARCH_ESP32
+WiFiClientSecure sslClient;        // ESP32 secure client
+#endif
+
+#ifdef ARDUINO_ARCH_SAMD
+BearSSLClient sslClient(baseClient); // SAMD secure client wrapper (requires ArduinoBearSSL)
+#endif
+
+// A proxy client that allows switching between plain and secure at runtime
+class ResilientClient : public Client {
+public:
+    Client* activeClient = &baseClient;
+
+    virtual int connect(IPAddress ip, uint16_t port) override { return activeClient->connect(ip, port); }
+    virtual int connect(const char *host, uint16_t port) override { return activeClient->connect(host, port); }
+    virtual size_t write(uint8_t b) override { return activeClient->write(b); }
+    virtual size_t write(const uint8_t *buf, size_t size) override { return activeClient->write(buf, size); }
+    virtual int available() override { return activeClient->available(); }
+    virtual int read() override { return activeClient->read(); }
+    virtual int read(uint8_t *buf, size_t size) override { return activeClient->read(buf, size); }
+    virtual int peek() override { return activeClient->peek(); }
+    virtual void flush() override { activeClient->flush(); }
+    virtual void stop() override { activeClient->stop(); }
+    virtual uint8_t connected() override { return activeClient->connected(); }
+    virtual operator bool() override { return (bool)*activeClient; }
+}; // Added semicolon to terminate class definition
+
+ResilientClient networkClient; // Declared instance separately
+
+/**
+ * Configure the network client for secure or plain communication.
+ * Returns true if TLS is enabled, false if plain.
+ * This is autonomous and handles its own time sync and config retrieval.
+ */
+bool setupResilientClient() {
+    if (config.secretMqttCA.length() > 0) {
+        logStatus("Network Security: TLS enabled.");
+        
+        // Ensure time is synced for certificate validation via sys_time module
+        setupTime();
+
+        // Initialize ECCX08 for hardware crypto support if present
+        if (ECCX08.begin()) {
+            logStatus("Network Security: Hardware Crypto (ECCX08) initialized.");
+        } else {
+            logStatus("Network Security: Hardware Crypto not detected, using software TLS.");
+        }
+
+#ifdef ARDUINO_ARCH_SAMD
+        ArduinoBearSSL.onGetTime(getTime);
+        static BearSSL::X509List cert(config.secretMqttCA.c_str());
+        sslClient.setTrustAnchors(&cert);
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+        sslClient.setCACert(config.secretMqttCA.c_str());
+#endif
+        
+        networkClient.activeClient = &sslClient;
+        return true;
+    } else {
+        logStatus("Network Security: Plain communication (no Root CA).");
+        networkClient.activeClient = &baseClient;
+        return false;
+    }
+}
+
+/**
+ * Perform background network tasks (WiFi reconnection and Time sync).
+ */
+void loopWiFi() {
+    connectToWiFi();
+    loopTime();
 }

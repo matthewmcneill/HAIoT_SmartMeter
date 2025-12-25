@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include "sys_logStatus.h"
 #include "sys_serial_utils.h"
+#include "sys_crypto.h"
 
 // Nano ESP 32 - for chip UID
 #ifdef ARDUINO_ARCH_ESP32
@@ -14,6 +15,9 @@
 // to help with debugging, if you want to disable the interactive Serial config options
 // set this to true and it will not force interactive
 #define NO_RECONFIGURE false
+
+#define HEADER_PLAIN_V1 "p1:" // marker for plaintext strings
+#define HEADER_SECRET_V1 "s1:" // marker for encrypted strings
 
 Preferences preferences;
 
@@ -36,12 +40,35 @@ struct ConfigurationStructType {
   String secretWiFiPassword     = "";                               // used by WiFi
   String secretMqttUser         = "";                               // used by Home Assistant for MQTT broker
   String secretMqttPassword     = "";                               // used by Home Assistant for MQTT broker
+  String secretMqttCA           = "";                               // Root CA for MQTT TLS (Empty for plain MQTT)
 } config;
 
 
-String loadConfig(String key, String defaultValue = "", String prompt = "", bool mandatory = false, bool force = false) {
+String loadConfig(String key, String defaultValue = "", String prompt = "", bool mandatory = false, bool force = false, bool isSecret = false) {
   // assumes a preferences namespace has been opened
-  String value = preferences.getString(key.c_str(), defaultValue);
+  String rawValue = preferences.getString(key.c_str(), "");
+  String value = "";
+  bool migrationNeeded = false;
+
+  // 1. Detect format and extract raw value
+  if (rawValue == "") {
+    // No value found in flash, use default
+    value = defaultValue;
+    if (value != "") migrationNeeded = true; 
+  } else if (rawValue.startsWith(HEADER_SECRET_V1)) {
+    // Current Secret format: extract payload and decrypt
+    String payload = rawValue.substring(strlen(HEADER_SECRET_V1));
+    value = decryptSecret(payload);
+    if (!isSecret) migrationNeeded = true; // Should be plaintext now
+  } else if (rawValue.startsWith(HEADER_PLAIN_V1)) {
+    // Current Plaintext format: extract payload
+    value = rawValue.substring(strlen(HEADER_PLAIN_V1));
+    if (isSecret) migrationNeeded = true; // Should be secret now
+  } else {
+    // Legacy format (no prefix): treat as raw value
+    value = rawValue;
+    migrationNeeded = true; // Upgrade to versioned format
+  }
 
   if (force) {
     // unset the value, and make the current value the default to force a prompt
@@ -57,19 +84,28 @@ String loadConfig(String key, String defaultValue = "", String prompt = "", bool
     if (mandatory && (value == "")) {
       logStatus("A value is required for this key to proceed.");
     } else {
-      // ok, let's save it
+      // user provided a value or it's not mandatory
+      migrationNeeded = true; 
       break;
     }
   }
 
-  // save the value (putString checks for nugatory writes)
-  preferences.putString(key.c_str(), value);
+  // 2. Auto-migrate/save if needed
+  if (migrationNeeded) {
+    String valueToSave = "";
+    if (isSecret && value != "") {
+      valueToSave = String(HEADER_SECRET_V1) + encryptSecret(value);
+    } else {
+      valueToSave = String(HEADER_PLAIN_V1) + value;
+    }
+    // save the value (putString checks for nugatory writes)
+    preferences.putString(key.c_str(), valueToSave);
+  }
 
   // uncomment this line to get a serial readout of your configuraiton on startup
   // logText("Config: " + key + " = " + value);
 
   return value;
-
 }
 
 
@@ -91,7 +127,8 @@ void setupConfig() {
       config.deviceID,
       "Enter a unique network device ID that is used when connecting to the WifI and Home Assistant: ",
       true,
-      doReconfigure
+      doReconfigure,
+      false // not secret
     );
 
     config.deviceManufacturer = loadConfig(
@@ -99,7 +136,8 @@ void setupConfig() {
       config.deviceManufacturer,
       "Device Manufacturer: this should not need to be configured: ",
       false,
-      false
+      false,
+      false // not secret
     );
 
     config.deviceModel = loadConfig(
@@ -107,7 +145,8 @@ void setupConfig() {
       config.deviceModel,
       "Device Model: this should not need to be configured: ",
       false,
-      false
+      false,
+      false // not secret
     );
 
     config.timeZone = loadConfig(
@@ -115,7 +154,8 @@ void setupConfig() {
       config.timeZone,
       "Enter a standard TimeZone for your device to configure local time. A full list is available here https://en.wikipedia.org/wiki/List_of_tz_database_time_zones : ",
       true,
-      doReconfigure
+      doReconfigure,
+      false // not secret
     );
 
     while (!config.mqttBrokerAddress.fromString( 
@@ -124,13 +164,17 @@ void setupConfig() {
         config.mqttBrokerAddress.toString(),
         "Please enter a valid IP address for the MQTT broker: ",
         true,
-        doReconfigure 
+        doReconfigure,
+        false // not secret
       ).c_str() )) 
     {
       logStatus("Could not parse IP Address, or IP address is unconfigured value 0.0.0.0, please try again.");
     }
     
   preferences.end();
+
+  // Ensure hardware key is derived before loading secrets
+  deriveHardwareKey();
 
   preferences.begin("secrets");
 
@@ -139,7 +183,8 @@ void setupConfig() {
       config.secretWiFiSSID,
       "Enter your WiFi network SSID: ",
       true,
-      doReconfigure
+      doReconfigure,
+      true // secret
     );
 
     config.secretWiFiPassword = loadConfig(
@@ -147,7 +192,8 @@ void setupConfig() {
       config.secretWiFiPassword,
       "Enter your WiFi password: ",
       true,
-      doReconfigure
+      doReconfigure,
+      true // secret
     );
 
     config.secretMqttUser = loadConfig(
@@ -155,7 +201,8 @@ void setupConfig() {
       config.secretMqttUser,
       "Enter your MQTT broker user name: ",
       true,
-      doReconfigure
+      doReconfigure,
+      true // secret
     );
 
     config.secretMqttPassword = loadConfig(
@@ -163,7 +210,17 @@ void setupConfig() {
       config.secretMqttPassword,
       "Enter your MQTT broker password: ",
       true,
-      doReconfigure
+      doReconfigure,
+      true // secret
+    );
+
+    config.secretMqttCA = loadConfig(
+      "s_mqtt_ca", 
+      config.secretMqttCA,
+      "Enter your MQTT Broker Root CA (PEM format, or leave empty for plain MQTT): ",
+      false, // not mandatory
+      doReconfigure,
+      true // secret
     );
 
   preferences.end();

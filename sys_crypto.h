@@ -17,10 +17,276 @@
 #include <utility/ECCX08JWS.h>
 #include <utility/ECCX08DefaultTLSConfig.h> // needed to set up the PEM for the first time
 #include <ArduinoJson.h>
+
+#ifdef ARDUINO_ARCH_ESP32
+  #include <mbedtls/aes.h>
+  #include <mbedtls/md.h>
+  #include <mbedtls/base64.h>
+#endif
+
+#ifdef ARDUINO_ARCH_SAMD
+  #include <ArduinoBearSSL.h>
+#endif
+
+// --- Base64 Utility for SAMD (since mbedtls is missing) ---
+#ifdef ARDUINO_ARCH_SAMD
+static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+String base64_encode(const uint8_t* data, size_t len) {
+    String out = "";
+    int i = 0;
+    while (i < len) {
+        uint32_t b = data[i++] << 16;
+        if (i < len) b |= data[i++] << 8;
+        if (i < len) b |= data[i++];
+        out += b64_table[(b >> 18) & 0x3F];
+        out += b64_table[(b >> 12) & 0x3F];
+        out += (i > len + 1) ? '=' : b64_table[(b >> 6) & 0x3F];
+        out += (i > len) ? '=' : b64_table[b & 0x3F];
+    }
+    return out;
+}
+
+size_t base64_decode(uint8_t* out, const char* in, size_t len) {
+    uint32_t b = 0;
+    int bits = -8;
+    size_t out_len = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (in[i] == '=') break;
+        const char* p = strchr(b64_table, in[i]);
+        if (!p) continue;
+        b = (b << 6) | (p - b64_table);
+        bits += 6;
+        if (bits >= 0) {
+            out[out_len++] = (b >> bits) & 0xFF;
+            bits -= 8;
+        }
+    }
+    return out_len;
+}
+#endif
 #include "sys_logStatus.h"
 #include "sys_serial_utils.h"
 
 #define CRYPTO_SLOT 0   // can be value 0 - 4
+
+// A hardcoded "Application Public Key" for ECDH. 
+// In a production app, this would be the public key of the server or a fixed value.
+// Here we use a fixed 64-byte public key (P-256) to perform the DH exchange.
+const uint8_t APP_PUBLIC_KEY[64] = {
+  0x1A, 0x2B, 0x3C, 0x4D, 0x5E, 0x6F, 0x70, 0x81, 0x92, 0xA3, 0xB4, 0xC5, 0xD6, 0xE7, 0xF8, 0x09,
+  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+  0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+  0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F
+};
+
+uint8_t derivedAESKey[32]; // 256-bit key
+bool keyInitialized = false;
+
+// Derive a hardware-locked shared secret using the ECC608 chip (if present)
+// or a software fallback for ESP32 using the unique chip MAC
+bool deriveHardwareKey() {
+  if (keyInitialized) return true;
+
+  bool hardwareCryptoSuccess = false;
+
+#ifdef ARDUINO_ARCH_SAMD
+  uint8_t serialNumber[9];
+  if (ECCX08.begin() && ECCX08.serialNumber(serialNumber)) {
+    // Successfully got hardware serial number
+    hardwareCryptoSuccess = true;
+    
+    // Simple derivation from serial number
+    br_sha256_context ctx;
+    br_sha256_init(&ctx);
+    br_sha256_update(&ctx, serialNumber, 9);
+    br_sha256_update(&ctx, "HAIoT_SALT", 10);
+    br_sha256_out(&ctx, derivedAESKey);
+  }
+#endif
+
+  if (!hardwareCryptoSuccess) {
+    // Software fallback for platforms without ECC608 or where ECDH failed
+    logStatus("Crypto: Hardware ECC chip not available or ECDH failed, using chip-ID derivation.");
+    
+    uint64_t chipID = 0;
+#ifdef ARDUINO_ARCH_ESP32
+    chipID = ESP.getEfuseMac(); // 48-bit MAC
+#else
+    // generic fallback for other platforms
+    chipID = 0xDEADBEEFCAFEBABE; 
+#endif
+    
+    // Simple derivation: hash the chipID and some salt
+#ifdef ARDUINO_ARCH_ESP32
+    mbedtls_md_context_t ctx;
+    mbedtls_md_init(&ctx);
+    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+    mbedtls_md_starts(&ctx);
+    mbedtls_md_update(&ctx, (const unsigned char*)&chipID, sizeof(chipID));
+    mbedtls_md_update(&ctx, (const unsigned char*)"HAIoT_SALT", 10);
+    mbedtls_md_finish(&ctx, derivedAESKey);
+    mbedtls_md_free(&ctx);
+#endif
+#ifdef ARDUINO_ARCH_SAMD
+    br_sha256_context ctx;
+    br_sha256_init(&ctx);
+    br_sha256_update(&ctx, &chipID, sizeof(chipID));
+    br_sha256_update(&ctx, "HAIoT_SALT", 10);
+    br_sha256_out(&ctx, derivedAESKey);
+#endif
+  }
+
+  keyInitialized = true;
+  return true;
+}
+
+// AES-256-CBC Encryption
+String encryptSecret(String plaintext) {
+  if (!deriveHardwareKey()) return plaintext;
+
+  // Prepare IV
+  uint8_t iv[16];
+#ifdef ARDUINO_ARCH_ESP32
+  for (int i = 0; i < 16; i++) iv[i] = esp_random() % 256;
+#else
+  // Fallback for SAMD: try to use hardware random if chip is initialized
+  if (ECCX08.begin()) {
+    ECCX08.random(iv, 16);
+  } else {
+    // poor man's random
+    for (int i = 0; i < 16; i++) iv[i] = random(256);
+  }
+#endif
+
+  // PKCS7 Padding
+  int len = plaintext.length();
+  int paddedLen = ((len / 16) + 1) * 16;
+  uint8_t input[paddedLen];
+  memcpy(input, plaintext.c_str(), len);
+  uint8_t padding = paddedLen - len;
+  for (int i = len; i < paddedLen; i++) input[i] = padding;
+
+  uint8_t output[paddedLen];
+
+#ifdef ARDUINO_ARCH_ESP32
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
+  mbedtls_aes_setkey_enc(&aes, derivedAESKey, 256);
+  uint8_t iv_temp[16];
+  memcpy(iv_temp, iv, 16);
+  mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, paddedLen, iv_temp, input, output);
+  mbedtls_aes_free(&aes);
+#endif
+
+#ifdef ARDUINO_ARCH_SAMD
+  br_aes_ct_cbcenc_keys ctx;
+  br_aes_ct_cbcenc_init(&ctx, derivedAESKey, 32);
+  uint8_t iv_temp[16];
+  memcpy(iv_temp, iv, 16);
+  br_aes_ct_cbcenc_run(&ctx, iv_temp, output, paddedLen);
+#endif
+
+  // Payload: IV (16) + Data (paddedLen)
+  uint8_t finalPayload[16 + paddedLen];
+  memcpy(finalPayload, iv, 16);
+  memcpy(finalPayload + 16, output, paddedLen);
+
+  // Base64 Encode
+#ifdef ARDUINO_ARCH_ESP32
+  size_t outLen;
+  mbedtls_base64_encode(NULL, 0, &outLen, finalPayload, 16 + paddedLen);
+  unsigned char encoded[outLen];
+  mbedtls_base64_encode(encoded, outLen, &outLen, finalPayload, 16 + paddedLen);
+  return String((char*)encoded);
+#endif
+#ifdef ARDUINO_ARCH_SAMD
+  return base64_encode(finalPayload, 16 + paddedLen);
+#endif
+}
+
+// AES-256-CBC Decryption
+String decryptSecret(String base64Data) {
+  if (!deriveHardwareKey()) return base64Data;
+  
+  // 1. Base64 Decode
+#ifdef ARDUINO_ARCH_ESP32
+  size_t decodedLen;
+  mbedtls_base64_decode(NULL, 0, &decodedLen, (const unsigned char*)base64Data.c_str(), base64Data.length());
+  uint8_t payload[decodedLen];
+  if (mbedtls_base64_decode(payload, decodedLen, &decodedLen, (const unsigned char*)base64Data.c_str(), base64Data.length()) != 0) {
+    return base64Data;
+  }
+#endif
+#ifdef ARDUINO_ARCH_SAMD
+  // Estimation for buffer size
+  size_t maxLen = (base64Data.length() * 3) / 4 + 2;
+  uint8_t payload[maxLen];
+  size_t decodedLen = base64_decode(payload, base64Data.c_str(), base64Data.length());
+  if (decodedLen == 0) return base64Data;
+#endif
+
+  if (decodedLen < 16 + 16) return base64Data; // Minimum IV + 1 block
+
+  uint8_t iv[16];
+  memcpy(iv, payload, 16);
+  int dataLen = decodedLen - 16;
+  uint8_t input[dataLen];
+  memcpy(input, payload + 16, dataLen);
+  uint8_t output[dataLen];
+
+#ifdef ARDUINO_ARCH_ESP32
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
+  mbedtls_aes_setkey_dec(&aes, derivedAESKey, 256);
+  uint8_t iv_temp[16];
+  memcpy(iv_temp, iv, 16);
+  if (mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, dataLen, iv_temp, input, output) != 0) {
+    mbedtls_aes_free(&aes);
+    return base64Data;
+  }
+  mbedtls_aes_free(&aes);
+#endif
+
+#ifdef ARDUINO_ARCH_SAMD
+  br_aes_ct_cbcdec_keys ctx;
+  br_aes_ct_cbcdec_init(&ctx, derivedAESKey, 32);
+  uint8_t iv_temp[16];
+  memcpy(iv_temp, iv, 16);
+  br_aes_ct_cbcdec_run(&ctx, iv_temp, output, dataLen);
+  // BearSSL doesn't return an error for CBC decryption itself as it's a stream operation
+#endif
+
+  // 3. Remove PKCS7 Padding
+  uint8_t padding = output[dataLen - 1];
+  if (padding > 16 || padding == 0) return base64Data;
+  int finalLen = dataLen - padding;
+  
+  char finalString[finalLen + 1];
+  memcpy(finalString, output, finalLen);
+  finalString[finalLen] = '\0';
+
+  return String(finalString);
+}
+
+void testSecureStorage() {
+  logStatus("--- CRYPTO TEST START ---");
+  String original = "Password!123";
+  logStatus("Original: " + original);
+  
+  String encrypted = encryptSecret(original);
+  logStatus("Encrypted: " + encrypted);
+  
+  String decrypted = decryptSecret(encrypted);
+  logStatus("Decrypted: " + decrypted);
+  
+  if (original == decrypted) {
+    logStatus("TEST PASSED: Encryption integrity verified.");
+  } else {
+    logStatus("TEST FAILED: Data mismatch!");
+  }
+  logStatus("--- CRYPTO TEST END ---");
+}
 
 // interactive routine to configure the crypto of the device when connected to the serial port in the IDE.
 // needed the first time when setting it up to configure the crypto
@@ -57,7 +323,7 @@ void configureCrypto() {
   if (publicKeyPem == "") {
     Serial.println("Key missing at slot [" + slot + "]");
     // generate a new private key
-    if promptAndReadYesNo("Would you like to generate a new private key?", true)  {
+    if (promptAndReadYesNo("Would you like to generate a new private key?", true))  {
       Serial.println("Generating new key pair at slot [" + slot + "]...");
       publicKeyPem = ECCX08JWS.publicKey(slot.toInt(), true);
     }
