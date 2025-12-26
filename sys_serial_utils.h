@@ -11,10 +11,12 @@
  * - `readLine()`: Reads a line from the serial buffer.
  * 
  * License: GPLv3 (see project LICENSE file for details)
+ *
+ * serial port interaction utilities from 
+ * https://github.com/arduino-libraries/ArduinoECCX08/blob/master/examples/Tools/ECCX08JWSPublicKey/ECCX08JWSPublicKey.ino
+ *
  */
 
-// serial port interaction utilities from 
-// https://github.com/arduino-libraries/ArduinoECCX08/blob/master/examples/Tools/ECCX08JWSPublicKey/ECCX08JWSPublicKey.ino
 
 #pragma once
 

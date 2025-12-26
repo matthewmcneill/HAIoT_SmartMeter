@@ -5,7 +5,7 @@
   off the power meter and write it to the home-assistant entites
 
   Circuit:
-   - Iot Nano 33 board
+   - Iot Nano 33 board / ESP32 Nano board
    - RS485 peripheral board : DollaTek 5PCS 5V MAX485 / RS485 Module TTL to RS-485 MCU Development Board
 */
 
@@ -28,12 +28,46 @@
 // ESP32 does not have a default RS485 object defined in the library, so we define one here.
 // Note: Rename back to RS485 because ArduinoModbus has a hard-coded dependency on this global name.
 RS485Class RS485(Serial1, MODBUS_TX_PIN, MODBUS_DE_PIN, MODBUS_RE_PIN); 
-#endif
-
+#else
 // For SAMD (Nano 33 IoT), the RS485Class RS485 object is already defined by the ArduinoRS485 library.
 // We will use that global object directly below.
+#endif
 
-//floats are 32bit values.  Modbus registers are 16 bit, so 2 registers are used to 
+// mapping structure to link Modbus register addresses to HA entities
+struct ModbusMapping {
+    int address;
+    HASensorNumber HADataType::HAEntitiesType::* member;
+};
+
+// Define all the mappings for the Eastron SDM120M
+// register values come from the spec for the Eastron SDM120M
+// https://www.eastroneurope.com/images/uploads/products/protocol/SDM120-MODBUS_Protocol.pdf
+//
+const ModbusMapping smartMeterMappings[] = {
+    {30001, &HADataType::HAEntitiesType::voltage},
+    {30007, &HADataType::HAEntitiesType::current},
+    {30013, &HADataType::HAEntitiesType::activePower},
+    {30019, &HADataType::HAEntitiesType::apparentPower},
+    {30025, &HADataType::HAEntitiesType::reactivePower},
+    {30031, &HADataType::HAEntitiesType::powerFactor},
+    {30071, &HADataType::HAEntitiesType::frequency},
+    {30073, &HADataType::HAEntitiesType::importActiveEnergy},
+    {30075, &HADataType::HAEntitiesType::exportActiveEnergy},
+    {30077, &HADataType::HAEntitiesType::importReactiveEnergy},
+    {30079, &HADataType::HAEntitiesType::exportReactiveEnergy},
+    {30085, &HADataType::HAEntitiesType::totalSystemPowerDemand},
+    {30087, &HADataType::HAEntitiesType::maxTotalSystemPowerDemand},
+    {30089, &HADataType::HAEntitiesType::importSystemPowerDemand},
+    {30091, &HADataType::HAEntitiesType::maxImportSystemPowerDemand},
+    {30093, &HADataType::HAEntitiesType::exportSystemPowerDemand},
+    {30095, &HADataType::HAEntitiesType::maxExportSystemPowerDemand},
+    {30259, &HADataType::HAEntitiesType::currentDemand},
+    {30265, &HADataType::HAEntitiesType::maxCurrentDemand},
+    {30343, &HADataType::HAEntitiesType::totalActiveEnergy},
+    {30345, &HADataType::HAEntitiesType::totalReactiveEnergy}
+};
+
+// floats are 32bit values.  Modbus registers are 16 bit, so 2 registers are used to 
 // hold the value, therefore we have to do 2 reads and combine them.
 // Alternatively, to read a single Holding Register value use: ModbusRTUClient.holdingRegisterRead(...)
 float readFloatFromRegisters(int& registerCounter) {
@@ -72,73 +106,11 @@ float readFloatFromRegisters(int& registerCounter) {
     return result;
 }
 
-/*
-void printRegistersToSerial(int id, int type, int address, int nb) {
-  uint16_t value;           // value to sink unused values when read
-  int status = 0;           // call status
-
-  logText("requestFrom(" + String(id) + ", " + String(type) + ", " + String(address) + ", " + String(nb) + ")");
-  status = ModbusRTUClient.requestFrom(id, type, address, nb); 
-
-  if (status == 0) {
-    logError("Sensor read over Modbus failed");
-    logError(ModbusRTUClient.lastError());
-  } else {
-    for (int i = 0; i < status; i+=2) {
-        Serial.print(String(30000 + i + 1) + " : ");
-        value = ModbusRTUClient.read();
-        Serial.printf("%04X", value);
-        Serial.print(" ");
-        value = ModbusRTUClient.read();
-        Serial.printf("%04X", value);
-        Serial.println();
-    }
-  }
-
-  promptWaitForUser();
-
-}
-*/
-
-// mapping structure to link Modbus register addresses to HA entities
-struct ModbusMapping {
-    int address;
-    HASensorNumber HADataType::HAEntitiesType::* member;
-};
-
-// Define all the mappings for the Eastron SDM120M
-const ModbusMapping smartMeterMappings[] = {
-    {30001, &HADataType::HAEntitiesType::voltage},
-    {30007, &HADataType::HAEntitiesType::current},
-    {30013, &HADataType::HAEntitiesType::activePower},
-    {30019, &HADataType::HAEntitiesType::apparentPower},
-    {30025, &HADataType::HAEntitiesType::reactivePower},
-    {30031, &HADataType::HAEntitiesType::powerFactor},
-    {30071, &HADataType::HAEntitiesType::frequency},
-    {30073, &HADataType::HAEntitiesType::importActiveEnergy},
-    {30075, &HADataType::HAEntitiesType::exportActiveEnergy},
-    {30077, &HADataType::HAEntitiesType::importReactiveEnergy},
-    {30079, &HADataType::HAEntitiesType::exportReactiveEnergy},
-    {30085, &HADataType::HAEntitiesType::totalSystemPowerDemand},
-    {30087, &HADataType::HAEntitiesType::maxTotalSystemPowerDemand},
-    {30089, &HADataType::HAEntitiesType::importSystemPowerDemand},
-    {30091, &HADataType::HAEntitiesType::maxImportSystemPowerDemand},
-    {30093, &HADataType::HAEntitiesType::exportSystemPowerDemand},
-    {30095, &HADataType::HAEntitiesType::maxExportSystemPowerDemand},
-    {30259, &HADataType::HAEntitiesType::currentDemand},
-    {30265, &HADataType::HAEntitiesType::maxCurrentDemand},
-    {30343, &HADataType::HAEntitiesType::totalActiveEnergy},
-    {30345, &HADataType::HAEntitiesType::totalReactiveEnergy}
-};
-
 void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA, int startRegister, int endRegister) {
   uint16_t unusedRegister;  // value to sink unused values when read
   int currentRegister;      // tracks the address of the current register
   int baseRegister = 30000; // holding registers start at the base of 30000
   int status = 0;           // call status
-
-  // register values come from the spec for the Eastron SDM120M
-  //   https://www.eastroneurope.com/images/uploads/products/protocol/SDM120-MODBUS_Protocol.pdf
 
   startRegister += baseRegister;  
   endRegister += baseRegister;    
@@ -175,7 +147,6 @@ void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA, int 
   }
 }
 
-
 void readMeterAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA) {
   // break the meter reading into multiple blocks (the readings are spread out in 
   // the register spectrum) and do one read and then parse out each block
@@ -191,6 +162,7 @@ void readMeterAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA) {
 }
 
 void onSensorUpdateEvent() {
+  // callback, called by the timer thread every XX seconds
   readMeterAndUpdateHA(ha.meter1entities);
   readMeterAndUpdateHA(ha.meter2entities);
 }
@@ -209,7 +181,6 @@ void setupSmartMeter() {
 
   RS485.begin(MODBUS_SERIAL_BAUD);
 
-
   logStatus("Setting up Modbus RTU Client to connect to Eastron");
   // start the Modbus RTU client (note that params must be the same as above)
   while (!ModbusRTUClient.begin(RS485, MODBUS_SERIAL_BAUD, SERIAL_8N1)) {
@@ -220,9 +191,35 @@ void setupSmartMeter() {
  
   // set up the timer thread
   ha.timers.readSmartMeters.onRun(onSensorUpdateEvent);
-	ha.timers.readSmartMeters.setInterval(10 * 1000);   // poll every X seconds
+	ha.timers.readSmartMeters.setInterval(10 * 1000);   // poll every 10 seconds
   ha.timers.readSmartMeters.enabled = true;           // ensure that the thread is enabled
 
 }
 
+/*
+void printRegistersToSerial(int id, int type, int address, int nb) {
+  uint16_t value;           // value to sink unused values when read
+  int status = 0;           // call status
 
+  logText("requestFrom(" + String(id) + ", " + String(type) + ", " + String(address) + ", " + String(nb) + ")");
+  status = ModbusRTUClient.requestFrom(id, type, address, nb); 
+
+  if (status == 0) {
+    logError("Sensor read over Modbus failed");
+    logError(ModbusRTUClient.lastError());
+  } else {
+    for (int i = 0; i < status; i+=2) {
+        Serial.print(String(30000 + i + 1) + " : ");
+        value = ModbusRTUClient.read();
+        Serial.printf("%04X", value);
+        Serial.print(" ");
+        value = ModbusRTUClient.read();
+        Serial.printf("%04X", value);
+        Serial.println();
+    }
+  }
+
+  promptWaitForUser();
+
+}
+*/

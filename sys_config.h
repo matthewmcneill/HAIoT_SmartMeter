@@ -1,7 +1,7 @@
 /**
  * @file sys_config.h
  * @author Matthew McNeill
- * @brief Software configurations and persistent preferences management.
+ * @brief Software configurations and persistent preferences management with encrypted storage for secrets.
  * @version 1.0.0
  * @date 2025-12-25
  * 
@@ -73,7 +73,7 @@ struct ConfigurationStructType {
   String deviceModel            = "Nano 33 IoT";                    // used by Home Assistant
 #endif
 #ifdef ARDUINO_ARCH_ESP32
-  String deviceModel            = "Nano ESP32 S3";                    // used by Home Assistant
+  String deviceModel            = "Nano ESP32 S3";                  // used by Home Assistant
 #endif
   String timeZone               = "Europe/London";                  // used by NTP Time Libraries
   IPAddress mqttBrokerAddress   = IPAddress(0,0,0,0);               // used by Home Assistant for MQTT broker
