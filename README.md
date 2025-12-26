@@ -38,12 +38,12 @@ An Arduino-based smart meter integration for Home Assistant, supporting Eastron 
 
 ### Libraries
 Install these via the Arduino Library Manager:
-*   `ArduinoHA` (v2.1.0+)
-*   `ArduinoModbus` & `ArduinoRS485`
+*   [ArduinoHA](https://github.com/dawidchyrzynski/arduino-home-assistant) (v2.1.0+)
+*   [ArduinoModbus](https://github.com/arduino-libraries/ArduinoModbus) & [ArduinoRS485](https://github.com/arduino-libraries/ArduinoRS485)
 *   `WiFiNINA` (for Nano 33 IoT) or `WiFi` (for ESP32)
-*   `ArduinoLog`
-*   `ezTime`
-*   `Thread` (ArduinoThread)
+*   [ArduinoLog](https://github.com/thijse/Arduino-Log)
+*   [ezTime](https://github.com/ropg/ezTime)
+*   [Thread](https://github.com/ivanseidel/ArduinoThread) (ArduinoThread)
 
 ### Critical Library Patch (ESP32 Only)
 Due to a known issue in the `ArduinoRS485` library for ESP32, you must manually patch the library to enable hardware flow control or use the custom pins. See [this issue](https://github.com/arduino-libraries/ArduinoRS485/issues/54) for details.
