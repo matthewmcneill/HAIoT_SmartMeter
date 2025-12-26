@@ -12,18 +12,19 @@
  * - `decryptSecret()`: Decrypts a Base64 encoded AES-256-CBC string.
  * 
  * License: GPLv3 (see project LICENSE file for details)
+ * 
+ * based on the tutorials by Alex Astrum
+ * https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
+ *
+ * crypto configuration routines taken directly from 
+ * https://github.com/arduino-libraries/ArduinoECCX08/blob/master/examples/Tools/ECCX08JWSPublicKey/ECCX08JWSPublicKey.ino
+ *
+ * ATECCx08 crypto chips only support ES256:
+ * https://github.com/MicrochipTech/cryptoauthlib/blob/master/lib/jwt/atca_jwt.c
+ * therefore will need to hand-crank to signature verification code in Google Apps Script
+ * which only supports RS256 and HS256.  ES256 is receommended as stronger.
+ * 
  */
-//
-// based on the tutorials by Alex Astrum
-// https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
-//
-// crypto configuration routines taken directly from 
-// https://github.com/arduino-libraries/ArduinoECCX08/blob/master/examples/Tools/ECCX08JWSPublicKey/ECCX08JWSPublicKey.ino
-//
-// ATECCx08 crypto chips only support ES256:
-// https://github.com/MicrochipTech/cryptoauthlib/blob/master/lib/jwt/atca_jwt.c
-// therefore will need to hand-crank to signature verification code in Google Apps Script
-// which only supports RS256 and HS256.  ES256 is receommended as stronger.
 
 #pragma once
 

@@ -23,7 +23,6 @@
 
 Timezone tzLondon;
 
-// Helper for BearSSL to get current time
 /**
  * @brief Helper for BearSSL to get current time.
  * 

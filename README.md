@@ -1,60 +1,88 @@
 # HAIoT_SmartMeter
 
-This Arduino project focuses on integrating an Eastron SDM120M smart meter with Home Assistant using MQTT, enabling you to monitor your energy consumption in real-time and potentially trigger automations based on usage patterns.
+An Arduino-based smart meter integration for Home Assistant, supporting Eastron SDM series (e.g., SDM120M) via Modbus RTU. This project features hardware-bound encrypted storage for secrets and an interactive serial-based configuration system.
 
-## Overview
+## Key Features
 
-The code in this repository achieves the following:
-
-* **MODBUS Serial Communication with Smart Meter:** Reads data from a smart meter connected to the Arduino's serial port. It assumes a specific data format (as commented in the code) and extracts relevant information like total kWh, import/export values, and current power.
-* **MQTT Communication:** Employs the `PubSubClient` library to publish the extracted smart meter data to an MQTT broker.
-* **Home Assistant Integration:**  Utilizes the `ArduinoHA` library to create sensor entities in Home Assistant, allowing you to visualize and track your energy usage.
-* **Configuration Management:**  Stores Wi-Fi and MQTT settings in the Arduino's persistent storage (EEPROM or Preferences).
+*   **Modbus RTU over RS485**: Robust communication with industry-standard smart meters.
+*   **Home Assistant Native Integration**: Uses the `ArduinoHA` library for seamless discovery and control.
+*   **Security First**: Secrets (Wi-Fi, MQTT credentials) are stored encrypted (AES-CCM) and bound to the hardware device key.
+*   **Interactive Setup**: Configure your device via the Serial Monitor—no credentials in source code.
+*   **Dual Architecture Support**: Designed for Arduino Nano 33 IoT (SAMD) and Nano ESP32 S3 (ESP32).
 
 ## Hardware Requirements
 
-* **Arduino Board:** This code is designed for the Arduino Nano 33 IoT and the Nano ESP32 S3.
-* **Smart Meter:** You'll need a compatible smart meter that outputs data over a serial connection. The code assumes a specific data format (see comments for details). 
-* **RS485 Connection Board since the Eastron smart meters use RS485 communication, you'll need an RS485 transceiver module (e.g., MAX485) to interface it with the Arduino. Refer to the code comments or the module's documentation for wiring instructions.
-* **Wi-Fi Connection:** Ensure your Arduino board has access to a Wi-Fi network.
-* **MQTT Broker:**  You'll need a running MQTT broker on your network or a cloud-based MQTT service.
+### Microcontrollers
+*   **Arduino Nano 33 IoT** (SAMD21)
+*   **Arduino Nano ESP32 S3** (ESP32-S3)
+
+### Components
+*   **Smart Meter**: Eastron SDM120M (or compatible SDM series via Modbus).
+*   **RS485 Transceiver**: MAX485 module or similar TTL-to-RS485 converter.
+
+### Wiring Diagram (MAX485 to Arduino)
+
+| MAX485 Pin | Arduino Pin (Nano 33 IoT) | Arduino Pin (Nano ESP32 S3) |
+| :--- | :--- | :--- |
+| **VCC** | 5V | 5V |
+| **GND** | GND | GND |
+| **RO** (RX) | D0 | D3 |
+| **DI** (TX) | D1 | D2 |
+| **DE** | D4 | D4 |
+| **RE** | D5 | D5 |
+
+> [!NOTE]
+> For ESP32, pins D2/D3 are used for Serial1 remapping. For SAMD, standard Serial1 pins (0/1) are used.
 
 ## Software Requirements
 
-* **Arduino IDE:** Install the latest version of the Arduino IDE.
-* **Libraries:**
-   * Install the following libraries through the Arduino Library Manager:
-     * `ArduinoHA`
-     * `PubSubClient`
-     * `WiFiNINA` (for Nano 33 IoT) or `WiFi` (for Nano ESP32 S3)
-     * `ArduinoRS485` (if using RS485 communication)
+### Libraries
+Install these via the Arduino Library Manager:
+*   `ArduinoHA` (v2.1.0+)
+*   `ArduinoModbus` & `ArduinoRS485`
+*   `WiFiNINA` (for Nano 33 IoT) or `WiFi` (for ESP32)
+*   `ArduinoLog`
+*   `ezTime`
+*   `Thread` (ArduinoThread)
 
-## How it Works
+### Critical Library Patch (ESP32 Only)
+Due to a known issue in the `ArduinoRS485` library for ESP32, you must manually patch the library to enable hardware flow control or use the custom pins. See [this issue](https://github.com/arduino-libraries/ArduinoRS485/issues/54) for details.
 
-1. **Configuration:**
-   * Wi-Fi and MQTT settings are read from the `config` object (defined in `sys_config.h`) and stored in persistent storage.  These can be set interactively from the serial console so you don't need to store sensitive information in your code.
+## Home Assistant Integration
 
-2. **Wi-Fi Connection:**
-   * The `setupWifi()` function attempts to connect to the configured Wi-Fi network, with error handling and a timeout mechanism.
+The device will automatically appear in Home Assistant via MQTT Discovery. Each meter instance provides the following entities:
 
-3. **MQTT Connection:**
-   * After a successful Wi-Fi connection, the `setupHA()` function establishes an MQTT connection to the broker.
-   * It also sets up device availability and last will topics for Home Assistant integration.
-
-4. **Smart Meter Data Reading:**
-   * The `loop()` function continuously reads data from the serial port (or RS485 if configured).
-   * It parses the incoming data based on the assumed format and extracts relevant information.
-
-5. **MQTT Publishing:**
-   * The extracted smart meter data is then published to MQTT topics under the `homeassistant` hierarchy, allowing Home Assistant to create sensor entities and display the data.
+*   **Energy Dashboard Compatible**: `Total Active Energy (kWh)`
+*   **Real-time Monitoring**: Voltage, Current, Active Power, Reactive Power, Power Factor, Frequency.
+*   **Demand Stats**: Current Demand, Max Power Demand.
 
 ## Getting Started
 
-1. **Configure `sys_config.h`:** Do not fill in your Wi-Fi credentials, MQTT broker details, or other configuration settings - use the interactive serial prompts instead.
-2. **Connect the Smart Meter:** Connect your smart meter to the Arduino's serial port (or via RS485 if applicable) according to the instructions in the code.
-3. **Upload the Sketch:** Compile and upload the `ha_iot.ino` sketch to your Arduino.
-4. **Monitor in Home Assistant:** Once the Arduino connects and starts publishing data, you should see the corresponding sensor entities in Home Assistant, allowing you to track your energy usage.
+1.  **Clone & Open**: Open `HAIoT_SmartMeter.ino` in the Arduino IDE.
+2.  **Upload**: Select your board and port, then upload the sketch.
+3.  **Initial Configuration**:
+    *   Open the **Serial Monitor** (9600 baud).
+    *   When prompted "Do you want to configure the device?", type **Y**.
+    *   Follow the prompts to enter your Wi-Fi SSID, Password, and MQTT Broker IP.
+    *   The device will save these securely to Flash/EEPROM.
+4.  **Verify**: Check Home Assistant for a new device named after your configured `Device ID`.
 
-**Disclaimer**
+## Project Structure
 
-This project is provided as-is. Use it at your own risk. The author is not responsible for any damages or issues that might arise from using this code. Please ensure you understand the code and its implications before deploying it in a production environment.
+*   `HAIoT_SmartMeter.ino`: Main entry point characterizing the system setup and main execution loops.
+*   `sys_config.h`: Manages persistent settings and the interactive serial configuration system.
+*   `sys_crypto.h`: Provides hardware-bound AES-256 encryption for sensitive secrets.
+*   `sys_wifi.h`: Manages resilient WiFi connectivity and secure network client initialization.
+*   `sys_time.h`: Handles NTP time synchronization and local time management.
+*   `sys_logStatus.h`: Centralized logging, status reporting, and variadic debugging macros.
+*   `sys_serial_utils.h`: Low-level serial communication and non-blocking line reading helpers.
+*   `home_assistant.h`: Defines the Home Assistant device entities and manages MQTT communication.
+*   `sensor_eastron_smart_meter.h`: Handles Modbus RTU communication and register mapping for the smart meter.
+
+## Disclaimer
+
+This project is provided as-is. Use it at your own risk. The author is not responsible for any damages or issues that might arise from using this code. Ensure you understand the implications of monitoring mains power equipment.
+
+## License
+
+GNU General Public License v3.0 (GPLv3). See [LICENSE](LICENSE) for details.

@@ -13,9 +13,12 @@
  * - `blinkLED()`: Utility for visual feedback.
  * 
  * License: GPLv3 (see project LICENSE file for details)
+ *
+ * Variadic macros used for debugging to print information in de-bugging mode from LarryD, Arduino forum
+ * https://forum.arduino.cc/t/variadic-macros-used-for-debugging-to-print-information-in-de-bugging-mode/1146522
+ *
  */
 
-// Variadic macros used for debugging to print information in de-bugging mode from LarryD, Arduino forum
 
 #pragma once
 

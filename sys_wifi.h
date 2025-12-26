@@ -12,10 +12,12 @@
  * - `loopWiFi()`: Handles background WiFi maintenance.
  * 
  * License: GPLv3 (see project LICENSE file for details)
+ *
+ * based on the tutorials by Alex Astrum
+ * https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
+ *
  */
-//
-// based on the tutorials by Alex Astrum
-// https://medium.com/@alexastrum/getting-started-with-arduino-and-firebase-347ec6917da5
+
 
 #pragma once
 
