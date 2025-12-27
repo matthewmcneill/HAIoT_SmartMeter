@@ -2,39 +2,35 @@
  * @file sys_logStatus.h
  * @author Matthew McNeill
  * @brief Logging and debug status utilities with Serial and LED feedback.
- * @version 1.0.0
- * @date 2025-12-25
+ * @version 1.1.0
+ * @date 2025-12-26
  * 
  * @section api Public API
- * - `setupLog()`: Configures serial port and debug pins.
- * - `logStatus()`: Logs a status message and blinks status LED.
- * - `logError()`: Logs an error message and blinks error pattern.
- * - `logText()`: Low-level formatted output to serial.
+ * - `setupLog()`: Configures serial port and debug pins, initializes ArduinoLog.
+ * - `logStatus()`: Logs a status message (variadic) and blinks status LED.
+ * - `logError()`: Logs an error message (variadic) and blinks error pattern.
+ * - `logText()`: Low-level formatted output to serial (variadic).
+ * - `logSuspend()`: Critical failure log and halt (variadic).
  * - `blinkLED()`: Utility for visual feedback.
  * 
  * License: GPLv3 (see project LICENSE file for details)
- *
- * Variadic macros used for debugging to print information in de-bugging mode from LarryD, Arduino forum
- * https://forum.arduino.cc/t/variadic-macros-used-for-debugging-to-print-information-in-de-bugging-mode/1146522
- *
  */
 
-
 #pragma once
+#include <ArduinoLog.h>
+#include <stdarg.h>
 
-// un-comment this line to print the debugging statements
-#define DEBUG
+// define the global log level - can be overridden before including this file
+#ifndef SYSTEM_LOG_LEVEL
+  #ifdef DEBUG
+    #define SYSTEM_LOG_LEVEL LOG_LEVEL_VERBOSE
+  #else
+    #define SYSTEM_LOG_LEVEL LOG_LEVEL_NOTICE
+  #endif
+#endif
+
 // uncomment this line to use the internal LED for debugging
 #define DEBUG_LED
-
-#ifdef DEBUG
-  #define DPRINT(...)    Serial.print(__VA_ARGS__)
-  #define DPRINTLN(...)  Serial.println(__VA_ARGS__)
-#else
-  // define blank line
-  #define DPRINT(...)
-  #define DPRINTLN(...)
-#endif
 
 /**
  * @brief Utility to blink the built-in LED.
@@ -69,65 +65,119 @@ void setupLog() {
   while (!Serial && (millis() - startTime < timeout)) {
     ; // Wait for serial port to connect, but with a timeout
   }
+
+  // Initialize ArduinoLog
+  Log.begin(SYSTEM_LOG_LEVEL, &Serial);
+  Log.setPrefix([](Print* _logOutput, int level) {
+      // Print timestamp in milliseconds
+      _logOutput->print("[");
+      _logOutput->print(millis());
+      _logOutput->print("] [HAIOT] ");
+
+      // Print log level indicator
+      switch (level) {
+        case LOG_LEVEL_FATAL:   _logOutput->print("[FATAL]   "); break;
+        case LOG_LEVEL_ERROR:   _logOutput->print("[ERROR]   "); break;
+        case LOG_LEVEL_WARNING: _logOutput->print("[WARNING] "); break;
+        case LOG_LEVEL_NOTICE:  _logOutput->print("[NOTICE]  "); break;
+        case LOG_LEVEL_TRACE:   _logOutput->print("[TRACE]   "); break;
+        case LOG_LEVEL_VERBOSE: _logOutput->print("[VERBOSE] "); break;
+        default:                _logOutput->print("[LOG]     "); break;
+      }
+  });
+
   if (Serial) {
-    DPRINTLN("\nSerial port connected.");
+    Log.notice(CR "Serial port connected." CR);
   } else {
-    DPRINTLN("\nNo serial port connected.");  // a bit pointless really.
+    // If we're here, Serial failed to connect within timeout
   }
 }
 
 /**
- * @brief Logs a raw string to the serial port.
+ * @brief Logs a formatted string to the serial port.
  * 
- * @param msg The message to log.
+ * @param format The printf-style format string.
+ * @param ... Variadic arguments for the format string.
  */
-void logText(String msg) { 
-  DPRINTLN(msg); 
+void logText(const char* format, ...) { 
+  va_list args;
+  va_start(args, format);
+  Log.verbose(format, args);
+  Log.verbose(CR);
+  va_end(args);
+}
+
+// Overload for backward compatibility with String
+void logText(String msg) {
+  logText(msg.c_str());
 }
 
 /**
  * @brief Logs a status message and provides visual LED feedback.
- * 
- * @param msg The status message to log.
  */
-void logStatus(String msg) {
-  logText(msg);
+void logStatus(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  Log.notice(format, args);
+  Log.notice(CR);
+  va_end(args);
   blinkLED(50);
+}
+
+// Overload for backward compatibility with String
+void logStatus(String msg) {
+  logStatus(msg.c_str());
 }
 
 /**
  * @brief Logs an error message and provides urgent LED blink feedback.
- * 
- * @param msg The error message to log.
  */
-void logError(String msg) {
-  logText("Error: " + msg);
+void logError(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  Log.error("Error: ");
+  Log.error(format, args);
+  Log.error(CR);
+  va_end(args);
   blinkLED(100, 3);
+}
+
+// Overload for backward compatibility with String
+void logError(String msg) {
+  logError(msg.c_str());
 }
 
 /**
  * @brief Logs a critical failure and suspends program execution.
  * Enters an infinite loop with blinking LED feedback.
- * 
- * @param msg The reason for suspension.
  */
-void logSuspend(String msg) {
-  logText("Execution suspended: " + msg);
+void logSuspend(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  Log.fatal("Execution suspended: ");
+  Log.fatal(format, args);
+  Log.fatal(CR);
+  va_end(args);
+
   while (true) {
     // Stop execution.
-#ifdef DEBUG_LED
     blinkLED(1000);
-#endif
   }
 }
 
+// Overload for backward compatibility with String
+void logSuspend(String msg) {
+  logSuspend(msg.c_str());
+}
+
+
 void logByteArrayAsHex(const byte* byteArray, size_t len) {
   for (size_t i = 0; i < len; ++i) {
-    DPRINT(byteArray[i] >> 4, HEX); // Print high nibble
-    DPRINT(byteArray[i] & 0xF, HEX); // Print low nibble
+    if (byteArray[i] < 0x10) Log.verbose("0");
+    Log.verbose("%x", byteArray[i]);
     if (i < len - 1) {
-      DPRINT(" "); // Add space between bytes
+      Log.verbose(" "); // Add space between bytes
     }
   }
-  DPRINTLN();
+  Log.verbose(CR);
 }

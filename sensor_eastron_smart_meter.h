@@ -75,13 +75,13 @@ float readFloatFromRegisters(int& registerCounter) {
     uint16_t lowRegister = 0x0000;  // Default value to 0 
 
     // try and read two registers
-//    Serial.print("R " + String(registerCounter) + " : h");
+//    logText("R %d : h", registerCounter);
 
     // first register
     if (ModbusRTUClient.available()) {
       highRegister = ModbusRTUClient.read();
     } else {
-      logError("Could not read data from register " + String(registerCounter) + " - modbus register (high) not available");
+      logError("Could not read data from register %d - modbus register (high) not available", registerCounter);
     }
     registerCounter += 1; // increment anyway to continue switching through the registers
 
@@ -89,19 +89,17 @@ float readFloatFromRegisters(int& registerCounter) {
     if (ModbusRTUClient.available()) {
       lowRegister = ModbusRTUClient.read();
     } else {
-      logError("Could not read data from register " + String(registerCounter) + " - modbus register (low) not available");
+      logError("Could not read data from register %d - modbus register (low) not available", registerCounter);
     }
     registerCounter += 1; // increment anyway to continue switching through the registers
 
-//    Serial.print(highRegister, HEX);
-//    Serial.print(" l");
-//    Serial.print(lowRegister, HEX);
+//    logText("%x l%x", highRegister, lowRegister);
 
     // combine 2 x 16 bit ints into a 32 bit float
     uint32_t combinedBits = (static_cast<uint32_t>(highRegister) << 16) | lowRegister; // Combine bits
     float result;
     std::memcpy(&result, &combinedBits, sizeof(float)); // Interpret as float
-//    Serial.println(" = f" + String(result));
+//    logText(" = f%f", result);
 
     return result;
 }
@@ -114,7 +112,7 @@ void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA, int 
 
   startRegister += baseRegister;  
   endRegister += baseRegister;    
-  logText("Reading Block " + String(startRegister) + "-" + String(endRegister) +" Register values for Modbus Client [" + String(smartMeterHA.modbusID) + "]");
+  logText("Reading Block %d-%d Register values for Modbus Client [%d]", startRegister, endRegister, smartMeterHA.modbusID);
 
   // read a block Input Register values from (client) id, address between the two register addresses 
   status = ModbusRTUClient.requestFrom(smartMeterHA.modbusID, INPUT_REGISTERS, startRegister - 1 - baseRegister, endRegister - startRegister + 1); 
@@ -122,7 +120,7 @@ void readRegisterBlockAndUpdateHA(HADataType::HAEntitiesType& smartMeterHA, int 
     logError("Sensor read over Modbus failed");
     logError(ModbusRTUClient.lastError());
   } else {
-    logStatus("Read " + String(status) + " registers successfully");
+    logStatus("Read %d registers successfully", status);
     
     currentRegister = startRegister;
     while (currentRegister <= endRegister) {

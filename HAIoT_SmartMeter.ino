@@ -23,7 +23,7 @@ void setup() {
   setupHA();   // setupHA will call setups for all subsystems
 
   // finish startup
-  digitalWrite(LED_BUILTIN, LOW);
+  logStatus("Startup complete.");
 }
 
 // the loop function runs over and over again forever

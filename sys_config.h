@@ -133,7 +133,7 @@ String loadConfig(String key, String defaultValue = "", String prompt = "", bool
 
   // no value found
   while (value == "") {
-    //logStatus("No value found for key: " + key);
+    //logStatus("No value found for key: %s", key.c_str());
     value = promptAndReadLine(prompt.c_str(), defaultValue.c_str());
     // if mandatory, keep asking
     if (mandatory && (value == "")) {

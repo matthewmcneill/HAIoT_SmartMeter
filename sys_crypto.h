@@ -307,13 +307,13 @@ String decryptSecret(String base64Data) {
 void testSecureStorage() {
   logStatus("--- CRYPTO TEST START ---");
   String original = "Password!123";
-  logStatus("Original: " + original);
+  logStatus("Original: %s", original.c_str());
   
   String encrypted = encryptSecret(original);
-  logStatus("Encrypted: " + encrypted);
+  logStatus("Encrypted: %s", encrypted.c_str());
   
   String decrypted = decryptSecret(encrypted);
-  logStatus("Decrypted: " + decrypted);
+  logStatus("Decrypted: %s", decrypted.c_str());
   
   if (original == decrypted) {
     logStatus("TEST PASSED: Encryption integrity verified.");
@@ -366,13 +366,10 @@ void configureCrypto() {
     Serial.println("Current public key PEM at slot [" + slot + "]:");
     Serial.println(publicKeyPem);
     // uncomment this to interactively request at serial console for new key creation
-    // if promptAndReadYesNo("Would you like to generate a new private key?", true)  {
-    //   Serial.println("Generating new key pair at slot [" + slot + "]...");
-    //  publicKeyPem = ECCX08JWS.publicKey(slot.toInt(), true);
-    //  Serial.println("Here's your public key PEM, at slot [" + slot + "]:");
-    //  Serial.println();
-    //  Serial.println(publicKeyPem);
-    // }
+    //   logStatus("Generating new key pair at slot [%s]...", slot.c_str());
+    //   publicKeyPem = ECCX08JWS.publicKey(slot.toInt(), true);
+    //   logStatus("Here's your public key PEM, at slot [%s]:", slot.c_str());
+    //   logStatus(publicKeyPem);
   }
 
   if (!publicKeyPem || publicKeyPem == "") {
